@@ -17,3 +17,6 @@ AudioExports/
 
 # macOS
 .DS_Store
+
+# Local git worktrees (subagent-driven-development scratch)
+.worktrees/
