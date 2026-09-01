@@ -348,8 +348,8 @@ public final class AudioManager: @unchecked Sendable {
         let barDuration = 4.0 * beatDuration // ~2.8571428 seconds
 
         // Exact equal-tempered frequency table in Hz (A4 = 440 Hz):
-        let freqD2 = 73.42, freqE2 = 82.41, freqF2 = 87.31, freqG2 = 98.00, freqA2 = 110.00, freqB2 = 123.47, freqC3 = 130.81
-        let freqD3 = 146.83, freqE3 = 164.81, freqF3 = 174.61, freqG3 = 196.00, freqA3 = 220.00, freqB3 = 246.94, freqC4 = 261.63
+        let freqD2 = 73.42, freqE2 = 82.41, freqG2 = 98.00, freqA2 = 110.00, freqC3 = 130.81
+        let freqD3 = 146.83, freqE3 = 164.81, freqF3 = 174.61, freqG3 = 196.00, freqB3 = 246.94, freqC4 = 261.63
         let freqD4 = 293.66, freqE4 = 329.63, freqF4 = 349.23, freqG4 = 392.00, freqA4 = 440.00, freqB4 = 493.88, freqC5 = 523.25
         let freqD5 = 587.33, freqE5 = 659.25, freqF5 = 698.46, freqG5 = 783.99, freqA5 = 880.00, freqB5 = 987.77, freqC6 = 1046.50
         let freqD6 = 1174.66, freqE6 = 1318.51
