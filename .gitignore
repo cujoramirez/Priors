@@ -20,3 +20,6 @@ AudioExports/
 
 # Local git worktrees (subagent-driven-development scratch)
 .worktrees/
+
+# subagent-driven-development scratch (ledger, briefs, review packages)
+.superpowers/
