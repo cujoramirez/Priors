@@ -43,8 +43,10 @@ def test_beta_is_clipped_lognormal(pop):
     assert np.median(pop.beta) == pytest.approx(8.0, abs=0.4)
 
 
-def test_rt_base_median_is_2000ms(pop):
-    assert np.median(pop.rt_base_ms) == pytest.approx(2000.0, rel=0.05)
+def test_rt_base_median_is_1500ms(pop):
+    """RT_BASE_LOGNORM's median moved to 1500ms (SPEC §8.3, in-world hesitation
+    replaces button-click latency); see implementation plan Task 2."""
+    assert np.median(pop.rt_base_ms) == pytest.approx(1500.0, rel=0.05)
 
 
 def test_population_is_reproducible():

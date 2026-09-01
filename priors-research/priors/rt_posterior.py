@@ -42,20 +42,20 @@ from priors.posterior import build_grid
 
 #: Per-player baseline response time.
 #:
-#: SCHEMA §7 gives LogNormal(log 2000, 0.4), but that prior is deliberately
-#: NOT reused here. It is informative enough to matter: it is what lets a
-#: uniformly slow response be read as "near the line" rather than "slow
-#: player", so a population slower than SCHEMA §7 assumes would be
-#: systematically misread. `experiments/rt_base_prior.py` sweeps that — at
-#: sd 0.4 a 2.5×-slower population costs accuracy (0.0221, calibration 1.03);
-#: at sd 0.8 the channel is flat across every population tested
-#: (0.0176–0.0183, calibration ≥ 1.28) at no cost when SCHEMA §7 is right.
-#:
-#: Vaguer is strictly better here. rt_base is a nuisance parameter we have no
-#: verified knowledge of, and nothing is gained by pretending otherwise.
+#: SPEC §8.3 — this is real hesitation (time in a threshold's zone before
+#: resolving), not button-click latency, once the in-world redesign ships.
+#: 1500ms is a stated design assumption (zone radius 36pt at 110pt/s travel
+#: speed, plus perceive-and-decide time), not measured data — see the
+#: implementation plan's Task 2 for the derivation. The prior stays
+#: deliberately weak regardless: `experiments/rt_base_prior.py` showed
+#: `RT_BASE_PRIOR_SD = 0.8` keeps the channel flat (cost < 0.001 MAE) across
+#: population medians from 1200ms to 5000ms, so being approximately wrong
+#: about this number costs nothing once real tester data replaces it.
 RT_BASE_PRIOR_SD = 0.8
+RT_BASE_MEDIAN_MS = 1500.0
 RT_BASE_GRID = np.geomspace(
-    2000 * np.exp(-2.4 * RT_BASE_PRIOR_SD), 2000 * np.exp(2.4 * RT_BASE_PRIOR_SD), 11
+    RT_BASE_MEDIAN_MS * np.exp(-2.4 * RT_BASE_PRIOR_SD),
+    RT_BASE_MEDIAN_MS * np.exp(2.4 * RT_BASE_PRIOR_SD), 11
 )
 
 #: Near-line RT inflation. SCHEMA §7 asserts 2.5; we infer it, and 0.0 is on the
@@ -112,7 +112,7 @@ class BehaviouralPosterior:
         # Weak prior on rt_base (see RT_BASE_PRIOR_SD); uniform on everything
         # else, matching SPEC §3.1/§3.2's deliberately conservative choice.
         lp += self._reshape(
-            -0.5 * ((np.log(self.rt_base) - np.log(2000.0)) / RT_BASE_PRIOR_SD) ** 2, 3
+            -0.5 * ((np.log(self.rt_base) - np.log(RT_BASE_MEDIAN_MS)) / RT_BASE_PRIOR_SD) ** 2, 3
         )
         self._log_post = lp - _logsumexp(lp)
         self._joint_cache: np.ndarray | None = None
