@@ -65,7 +65,7 @@ def test_constant_price_rt_is_uninformative_about_theta():
     carries no such contrast.
 
     This holds *because* the rt_base prior is weak. With SCHEMA §7's tighter
-    sd 0.4, rt=6000 is 2.75 prior SDs out, so the posterior prefers to explain
+    sd 0.4, rt=4500 is 2.75 prior SDs out, so the posterior prefers to explain
     it as "near the line" and shifts θ by ~0.12 on no real evidence. Widening
     the prior (RT_BASE_PRIOR_SD) removed that, and removed the sensitivity to
     a slower-than-assumed population at the same time.
@@ -73,18 +73,20 @@ def test_constant_price_rt_is_uninformative_about_theta():
     a, b = Posterior(), BehaviouralPosterior()
     for _ in range(10):
         a.update(0.40, "theta_e", True)
-        b.update(0.40, "theta_e", True, rt_ms=6000.0)
-    # Tolerance widened 0.02 -> 0.08 for Task 2 (rt_base center 2000ms ->
-    # 1500ms, SPEC §8.3). This is a discretization/positioning effect, not a
-    # property regression: the fixed rt_ms=6000.0 probe was chosen as "3x the
-    # old 2000ms center" (1.373 prior SDs out); with the center now at
-    # 1500ms it sits at 4x (1.733 prior SDs out), so the same probe is
-    # legitimately farther from baseline and the behavioural posterior
-    # responds more (observed diff ~0.0755, deterministic). That is still far
-    # below the ~0.12 shift documented above as catastrophic misreading under
-    # SCHEMA §7's tighter sd=0.4 prior -- RT_BASE_PRIOR_SD stays 0.8 and the
-    # channel remains far weaker than a confident line-read.
-    assert b.mean_sd("theta_e")[0] == pytest.approx(a.mean_sd("theta_e")[0], abs=0.08)
+        # rt_ms chosen as 3x RT_BASE_MEDIAN_MS (1500) = 4500, so this probe
+        # sits at the same 1.373-prior-SD distance the original test used
+        # under the old 2000ms center (rt_ms=6000.0 = 3x 2000). Preserving
+        # the SD-distance -- not the literal ms value -- keeps this test's
+        # calibration comparable across Task 2's center change (2000ms ->
+        # 1500ms, SPEC §8.3). A literal rt_ms=6000.0 would instead sit at
+        # 1.733 SDs out under the new center, which lands almost exactly
+        # mid-cell in RT_BASE_GRID's coarse 11-point geomspace (spacing
+        # 0.48 SD) and produces a much larger, non-monotonic discretization
+        # artifact (diff ~0.0755) rather than a real calibration change --
+        # confirmed by sweeping nearby SD-distances, where the response is
+        # spiky rather than smooth in SD-distance.
+        b.update(0.40, "theta_e", True, rt_ms=4500.0)
+    assert b.mean_sd("theta_e")[0] == pytest.approx(a.mean_sd("theta_e")[0], abs=0.02)
 
 
 def test_a_tight_rt_base_prior_would_reintroduce_the_confound():
