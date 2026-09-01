@@ -1,0 +1,137 @@
+topic: >
+  Musical/audio direction for Priors' village soundtrack — techniques for a
+  "cheerful but subtly wrong / eerie" mood, and adaptive/procedural
+  game-audio systems for genuine per-playthrough unpredictability, under the
+  constraint that SPEC.md §8.1 permits only removing layers (never adding
+  back, never changing key or tempo) as the player model's confidence rises.
+created: 2026-09-02
+status: framework + web-search supplement complete; research-deep (per-item deep dive) not yet run
+note: >
+  Audio implementation is explicitly out of scope for the 2026-09-02 game-layer
+  session (AGENT-LOG.md). This outline exists so the research isn't lost
+  before the session that implements SPEC-GAME.md §7 picks it up.
+
+items:
+  # -- A. Village-specific / folk-diegetic wrongness --------------------------
+  - id: ghost_box_hauntology
+    name: Ghost Box Records / hauntology (Belbury Poly, The Advisory Circle, The Focus Group)
+    note: Highest-priority addition. "Quaint village, suddenly something cosmic" is the label's founding premise.
+  - id: wicker_man
+    name: The Wicker Man (1973), Paul Giovanni
+    note: Canonical diegetic village-music model — cheer lives entirely in-world.
+  - id: rapture
+    name: Everybody's Gone to the Rapture (2015), Jessica Curry
+    note: Closest shipped game to Priors' premise; pastoral choral writing over an algorithmic layer.
+  - id: midsommar
+    name: Midsommar (2019), Bobby Krlic
+    note: Bright daylight folk-horror, all-analog signal chain, major-key variant of "wrong."
+  - id: kentucky_route_zero
+    name: Kentucky Route Zero (2013-2020), Ben Babbitt + The Bedquilt Ramblers
+    note: Splits score into an Eno-esque bed plus diegetic in-fiction band performances.
+  - id: outer_wilds
+    name: Outer Wilds (2019), Andrew Prahlow
+    note: Music as a diegetic instrument of information (the Signalscope); banjo chosen for feeling "off-center."
+
+  # -- B. Children's-media pastiche and degradation ---------------------------
+  - id: dont_hug_me
+    name: Don't Hug Me I'm Scared (2011-2022)
+    note: "Create an unsettling feeling you can't put your finger on" — closest design-brief match to Priors.
+  - id: caretaker
+    name: The Caretaker, Everywhere at the End of Time (2016-2019)
+    note: Six hours of monotonic, remove-only degradation of 1930s ballroom loops. Structural precedent, not just mood.
+  - id: boards_of_canada
+    name: Boards of Canada — production technique
+    note: Detuned analog synths dubbed across tape generations; concrete "almost in tune" signal chain.
+  - id: analog_horror
+    name: Analog horror audio grammar (Local 58, The Mandela Catalogue)
+    note: Codified lo-fi/tape/broadcast palette; matches noise profile to purported medium.
+  - id: ddlc
+    name: Doki Doki Literature Club (2017)
+    note: Negative case — overt, fourth-wall-breaking degradation. Boundary marker for how much wrongness is too much.
+  - id: we_happy_few
+    name: We Happy Few (2018), The Make Believes
+    note: Same song plays clean in compliant areas, distorted/thinned in ruined ones — variation by degrading one asset.
+
+  # -- C. Suburban / lullaby wrongness -----------------------------------------
+  - id: rosemarys_baby
+    name: Rosemary's Baby (1968), Krzysztof Komeda — "Sleep Safe and Warm"
+    note: One theme, seven degrading variants, contaminated by sound-effect intrusion.
+  - id: twin_peaks
+    name: Twin Peaks (1990), Angelo Badalamenti
+    note: "Slower is more beautiful" — wrongness via tempo drag/dynamics, not dissonance.
+
+  # -- D. Technique / psychoacoustic mechanisms --------------------------------
+  - id: mistuning_perception
+    name: Mistuning perception research (beating + inharmonicity cues, asymmetric detection)
+    note: Empirical backing for "almost in tune" as a category; detune upward to stay subliminal.
+  - id: deliberate_detuning_pleasantness
+    name: Deliberate detuning as pleasantness (pipe-organ Celeste, accordion Musette)
+    note: Cheerful-and-wrong are the same parameter at different magnitudes, not opposed layers.
+  - id: carillon_inharmonicity
+    name: Bell/carillon inharmonicity (minor-third partial, hum tone)
+    note: A church bell is a naturally, diegetically, plausibly wrong-sounding sound source.
+  - id: shepard_tone
+    name: Shepard tone / Shepard-Risset glissando
+    note: Unresolvable pitch motion with no key change and no layer addition required.
+  - id: bone_conduction_inside
+    name: Bone-conduction / resonator estrangement — Inside (2016), Martin Stig Andersen
+    note: Reroute familiar material through a wrong physical resonator; timbre-only, legal under no-key/no-tempo.
+  - id: xenharmonic_tuning
+    name: Microtonal / xenharmonic and just-intonation tuning as an authored scale
+    note: A fixed tuning table is compatible with "never change key" while sitting off 12-TET expectations permanently.
+  - id: schafer_soundscape
+    name: Schafer's soundscape taxonomy — keynote / signal / soundmark
+    note: Structural framework for what to remove from; maps cleanly onto remove-only architecture.
+
+  # -- E. Adaptive / procedural systems ----------------------------------------
+  - id: alien_isolation
+    name: Alien Isolation (2014), The Flight + Sam Cooper
+    note: Music remixed live against AI belief-state, with deliberate tension release. Closest analog to "audio driven by a hidden model."
+  - id: returnal
+    name: Returnal (2021), Bobby Krlic
+    note: Per-biome bed with combat/location variations that grow or shrink — per-run variation for non-linear pacing.
+  - id: mini_metro
+    name: Mini Metro (2014), Disasterpeace
+    note: Strongest technical model for simulation-state sonification — each sim axis maps to a sound axis.
+  - id: animal_crossing
+    name: Animal Crossing (2001-), Kazumi Totaka
+    note: 24 hourly tracks re-arranged by weather — "always the same and never the same" at village scale.
+  - id: botw
+    name: Breath of the Wild (2017), Wakai/Kataoka
+    note: Sparse piano over long silences — proof the remove-only endpoint (near-silence) can be aesthetically strong.
+  - id: eno_airports
+    name: Brian Eno, Music for Airports — coprime tape-loop lengths
+    note: Fixed key, fixed tempo, no re-addition, unbounded variation from loop-length arithmetic alone. Possibly the ideal generative engine for Priors.
+  - id: lutoslawski_aleatorism
+    name: Lutoslawski's limited/controlled aleatorism (Jeux venitiens, 1961)
+    note: Per-playthrough unpredictability with a fully locked harmonic field — solved in 1961.
+  - id: spore_pd
+    name: Pure Data / "EAPd" as Spore's generative engine
+    note: Pd/libpd/hvcc as a cheap rule-based scheduling architecture without full middleware.
+  - id: wwise_resequencing
+    name: Wwise Interactive Music Hierarchy — Music Playlist/Switch containers, Step mode, Global scope
+    note: Re-sequencing (distinct from RTPC mixing) is what produces unpredictability without touching key/tempo.
+  - id: elias_middleware
+    name: Elias (Elias Software)
+    note: Music-first middleware alternative to Wwise — lower friction, composer-facing UI.
+  - id: metasounds_quartz
+    name: Unreal MetaSounds + Quartz (UE5)
+    note: First-party, free, sample-accurate procedural DSP graph for gameplay-driven music.
+  - id: manhattan_klang
+    name: Manhattan and Klang/K++ (Chris Nash) — ADC 2025
+    note: Newest tooling — hybrid pattern sequencer plus generative/live-data sonification, free kits shipped 2025.
+  - id: nevermind_biofeedback
+    name: Nevermind (2015), Erin Reynolds
+    note: Heart-rate-variability-driven adaptation — extends the adaptivity driver into physiological signal.
+  - id: procgen_survey_2025
+    name: "Procedural Music Generation Systems in Games" survey (Luo & Reiss, arXiv 2512.12834, Dec 2025)
+    note: Academic spine for the adaptive-systems half of this research.
+  - id: audio_uncanny_valley_paper
+    name: "The Audio Uncanny Valley: Sound, Fear and the Horror Game" (Grimshaw)
+    note: The actual paper behind the uncanny-valley-in-audio concept.
+
+execution:
+  batch_size: 6
+  items_per_agent: 1
+  output_dir: ./results
+  status: not started — see note above on scope

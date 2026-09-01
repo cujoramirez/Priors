@@ -1,0 +1,7 @@
+numpy>=2.0
+scipy>=1.13
+matplotlib>=3.8
+pytest>=8.0
+torch>=2.4
+coremltools>=8.0
+adopy==0.4.1

@@ -1,0 +1,19 @@
+# Python (priors-research/)
+.venv/
+__pycache__/
+*.pyc
+priors-research/out/
+.pytest_cache/
+
+# Swift (PriorsEngine/, Priors/)
+.build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+.swiftpm/
+
+# Generated audio stems — regenerable via generateProceduralStem (NOTES-audio.md)
+AudioExports/
+
+# macOS
+.DS_Store

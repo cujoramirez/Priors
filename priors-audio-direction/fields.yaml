@@ -1,0 +1,120 @@
+topic: musical/audio direction for Priors' village soundtrack
+fields:
+  # -- original framework --
+  - name: category
+    description: technique vs. system
+    detail_level: brief
+  - name: core_mechanism
+    description: what makes it work
+    detail_level: moderate
+  - name: musical_parameters
+    description: key/mode/tuning/tempo device used, where applicable
+    detail_level: moderate
+  - name: adaptivity_driver
+    description: what data feeds it, for adaptive systems
+    detail_level: moderate
+  - name: replayability_mechanism
+    description: how it avoids feeling the same twice, for adaptive systems
+    detail_level: moderate
+  - name: canonical_examples
+    description: named works or implementations
+    detail_level: brief
+  - name: applicability_to_priors
+    description: how Priors could borrow this
+    detail_level: detailed
+  - name: constraint_tension
+    description: does borrowing this require a key/tempo change or re-adding a layer, which SPEC §8.1 forbids
+    detail_level: detailed
+
+  # -- supplement, from the 2026-09-02 web-search pass --
+  - name: subtraction_compatibility
+    description: >
+      native / adaptable / incompatible — whether the technique survives a
+      remove-only architecture. Filterable version of constraint_tension.
+    detail_level: brief
+  - name: diegetic_status
+    description: >
+      score / diegetic / ambiguous / migrating-between. An in-world source
+      (a bell, a singing villager, a radio) can be removed narratively —
+      the singing stops — which reads as story, not as a mix change.
+    detail_level: moderate
+  - name: timbre_device
+    description: >
+      the non-pitch mechanism used (tape wow/flutter, generational dubbing,
+      inharmonic resonator, bone conduction, detuned rank, band-limiting).
+      Primary remaining lever once key and tempo are locked.
+    detail_level: moderate
+  - name: psychoacoustic_mechanism
+    description: >
+      the cited perceptual reason it works (beating vs. inharmonicity cues,
+      category deviation, unresolvable pitch trajectory, loss of rhythmic
+      entrainment).
+    detail_level: detailed
+  - name: detection_threshold
+    description: >
+      where the deviation sits relative to just-noticeable-difference —
+      subliminal / borderline / overt, with magnitude (cents, dB, seconds)
+      where known. Operationalises "subtly" wrong.
+    detail_level: detailed
+  - name: player_awareness_level
+    description: >
+      intended conscious registration — unnoticed / felt-but-unattributed /
+      noticed / addressed-to-the-player.
+    detail_level: moderate
+  - name: temporal_arc
+    description: >
+      the timescale over which wrongness accrues — seconds, a scene, a
+      session, hours. Priors' subtraction is long-arc; most film references
+      are short-arc.
+    detail_level: moderate
+  - name: entropy_source
+    description: >
+      where per-playthrough randomness physically comes from (coprime loop
+      lengths, shuffle-without-replacement, aleatoric desync, simulation
+      state, live telemetry, physiological signal, RNG seed), and whether
+      the variation space is authored-finite or combinatorially unbounded.
+    detail_level: detailed
+  - name: determinism_and_seeding
+    description: whether identical inputs reproduce identical audio.
+    detail_level: brief
+  - name: information_leakage_risk
+    description: >
+      does the audio state reveal something the player isn't meant to know
+      yet — acute for Priors, since a thinning mix could read as a live
+      confidence readout and become a tell.
+    detail_level: detailed
+  - name: silence_strategy
+    description: >
+      how absence is used — designed endpoint, negative space, wrong room
+      tone, or unhandled. A remove-only spec terminates in silence, so the
+      terminal state needs deliberate authorship.
+    detail_level: detailed
+  - name: repetition_tolerance
+    description: how long the material stays acceptable under loop, and whether repetition is a hazard or a weapon.
+    detail_level: moderate
+  - name: implementation_stack
+    description: >
+      the concrete tooling required (Wwise, FMOD, MetaSounds+Quartz, Elias,
+      Pd/libpd/hvcc, Manhattan/Klang, custom sample scheduler).
+    detail_level: brief
+  - name: authoring_cost
+    description: stem/variant count and session requirements — subtraction-only designs must author maximum density up front.
+    detail_level: moderate
+  - name: accessibility_redundancy
+    description: >
+      whether the wrongness signal exists outside audio (visual, haptic,
+      text), and whether it survives phone speakers and loudness compression.
+    detail_level: moderate
+  - name: source_credibility
+    description: peer-reviewed / composer or maintainer interview / trade press / fan analysis / blog.
+    detail_level: brief
+  - name: first_shipped_year
+    description: date — middleware capability moved substantially in 2022-2025.
+    detail_level: brief
+  - name: rights_and_pastiche_risk
+    description: >
+      clearance exposure, especially for hauntology/analog-horror techniques
+      that lean on sampling real library music or broadcast idiom.
+    detail_level: moderate
+
+uncertain: []
