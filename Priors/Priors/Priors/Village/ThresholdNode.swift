@@ -22,14 +22,32 @@ public final class ThresholdNode: SKNode {
     /// The zone radius. Used before `super.init` (for the overlay) as well as
     /// after, which is why it is a static rather than a stored property.
     public static let zoneRadius: CGFloat = 36.0
+    /// Same reason as `zoneRadius`: the commit sill is built before
+    /// `super.init`, so the radius cannot come from the instance property.
+    /// Both now read this, rather than the sill hardcoding a second 14.0 that
+    /// could silently drift from `commitRadius`.
+    public static let commitZoneRadius: CGFloat = 14.0
 
     public let decision: LiveDecision
     public let radius: CGFloat = ThresholdNode.zoneRadius
-    public let commitRadius: CGFloat = 14.0
+    public let commitRadius: CGFloat = ThresholdNode.commitZoneRadius
 
     private let darknessOverlay: SKShapeNode
     private let phraseLabel: SKLabelNode
     private let textPill: SKShapeNode
+    /// The crossing itself: a ring of set paving stones at the zone edge and a
+    /// worn stone lip at the commit radius.
+    ///
+    /// Without these the node was a dark circle on the ground, which at low
+    /// intensity read as a patch of mud and at high intensity as a hole — and
+    /// SPEC §8.2 makes band DISTINCTNESS the load-bearing variable, so a
+    /// threshold that does not read as a threshold is a measurement problem
+    /// and not only an ugly one. SPEC §8.3 calls a spatial decision "a marked
+    /// crossing approachable from any angle (a cellar lip, a hedge gap, a
+    /// gate)", so the marking is in contract, and a radially symmetric ring
+    /// keeps every approach angle equivalent.
+    private let markerRing: SKNode
+    private let commitSill: SKShapeNode
 
     public init(decision: LiveDecision) {
         self.decision = decision
@@ -60,10 +78,44 @@ public final class ThresholdNode: SKNode {
         textPill.isAntialiased = true
         textPill.zPosition = 19
 
+        // A ring of set stones at the zone edge. Twelve is enough to read as
+        // deliberate placement rather than scatter, at any approach angle.
+        markerRing = SKNode()
+        markerRing.zPosition = 5
+        let stoneCount = 12
+        for i in 0..<stoneCount {
+            let angle = (CGFloat(i) / CGFloat(stoneCount)) * 2 * .pi
+            let stone = SKShapeNode(rectOf: CGSize(width: 7, height: 5), cornerRadius: 1.5)
+            stone.position = CGPoint(x: cos(angle) * Self.zoneRadius,
+                                     y: sin(angle) * Self.zoneRadius)
+            stone.zRotation = angle
+            // Set stone catching the last of the light, with a dark seated
+            // edge. Deliberately near-white at source: the dusk filter scales
+            // green by 0.70 and blue by 0.52 at step 0 and harder later, so a
+            // mid-grey stone lands as dark brown and stops reading as stone.
+            stone.fillColor = SKColor(red: 0.94, green: 0.92, blue: 0.88, alpha: 0.95)
+            stone.strokeColor = SKColor(red: 0.18, green: 0.15, blue: 0.14, alpha: 0.85)
+            stone.lineWidth = 1.0
+            stone.isAntialiased = true
+            markerRing.addChild(stone)
+        }
+
+        // The lip you step over. SPEC §8.3 resolves a crossing on reaching
+        // `commitRadius`, so the player is entitled to see where that is —
+        // a threshold whose edge is invisible is not a threshold.
+        commitSill = SKShapeNode(circleOfRadius: Self.commitZoneRadius)
+        commitSill.fillColor = .clear
+        commitSill.strokeColor = SKColor(red: 0.96, green: 0.92, blue: 0.84, alpha: 0.50)
+        commitSill.lineWidth = 1.5
+        commitSill.isAntialiased = true
+        commitSill.zPosition = 5
+
         super.init()
         self.name = "threshold_live"
         self.zPosition = 3
 
+        addChild(markerRing)
+        addChild(commitSill)
         addChild(darknessOverlay)
         addChild(textPill)
         addChild(phraseLabel)
