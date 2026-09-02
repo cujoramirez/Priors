@@ -261,12 +261,40 @@ WATER_HI = (118, 228, 255, 255)
 GRASS = (106, 190, 88, 255)
 
 
-def extras_row(width: int) -> Image.Image:
+def shade(img: Image.Image, factor: float, warm: float = 1.0) -> Image.Image:
+    """Scale a tile's brightness, optionally pushing it warmer.
+
+    Used to derive tonal grass from Tiny Town's single grass tile. The pack has
+    one flat green, so a map filled with it reads as a billiard table however
+    much scatter you sprinkle on top.
+    """
+    out = img.copy()
+    px = out.load()
+    for y in range(out.height):
+        for x in range(out.width):
+            r, g, b, a = px[x, y]
+            if a == 0:
+                continue
+            px[x, y] = (min(255, int(r * factor * warm)),
+                        min(255, int(g * factor)),
+                        min(255, int(b * factor / warm)),
+                        a)
+    return out
+
+
+def extras_row(width: int, sheet_img: Image.Image) -> Image.Image:
     """Tiles Tiny Town does not contain, drawn in its palette.
 
-    Only water. The village has a pond, and `r_southeast_pond` is what COPY R7
-    renders as "the pond" — dropping the water would make a landmark the report
-    names stop existing. Generating it is cheaper than making the report lie.
+    Water, because the village has a pond and `r_southeast_pond` is what COPY
+    R7 renders as "the pond" — dropping it would make a landmark the report
+    names stop existing.
+
+    Then three tonal grasses. Tiny Town ships exactly one grass tile and two
+    flower variants, so the ground was ~91% a single flat green. Scatter alone
+    cannot fix that: what the eye reads as an unfinished map is the absence of
+    large-scale tonal variation, not the absence of detail. These three are the
+    base tile shaded, so they stay exactly on-palette, and the map builder
+    lays them down in low-frequency patches rather than per-tile noise.
     """
     row = Image.new("RGBA", (width, TILE), (0, 0, 0, 0))
     d = Image.new("RGBA", (TILE, TILE), WATER_MID)
@@ -283,6 +311,11 @@ def extras_row(width: int) -> Image.Image:
         ep[x, 0] = GRASS
         ep[x, 1] = GRASS if x % 3 else OUTLINE
     row.alpha_composite(e, (TILE, 0))                    # index 133: water edge
+
+    base_grass = tile(sheet_img, 0)
+    row.alpha_composite(shade(base_grass, 0.90), (2 * TILE, 0))              # 134: shadowed
+    row.alpha_composite(shade(base_grass, 1.06), (3 * TILE, 0))              # 135: sunlit
+    row.alpha_composite(shade(base_grass, 0.96, warm=1.08), (4 * TILE, 0))   # 136: dry/warm
     return row
 
 
@@ -294,7 +327,7 @@ def main() -> None:
     #    with an index map, so there is no second place for the grid to go wrong.
     tiles = Image.new("RGBA", (s.width, s.height + TILE), (0, 0, 0, 0))
     tiles.alpha_composite(s, (0, 0))
-    tiles.alpha_composite(extras_row(s.width), (0, s.height))
+    tiles.alpha_composite(extras_row(s.width, s), (0, s.height))
     imageset("TinyTown", tiles)
 
     # 2. Character atlas: 4 columns x 4 rows of 16x16.

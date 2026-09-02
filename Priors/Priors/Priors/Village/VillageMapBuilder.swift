@@ -219,7 +219,14 @@ public final class VillageMapBuilder {
         structuresNode.zPosition = 5
         rootNode.addChild(structuresNode)
 
-        // 1. Fill ground with grass (90% lush grass, 10% natural scattered wildflowers)
+        // 1. Fill ground with grass.
+        //
+        // Two scales, because they do different jobs. Low-frequency value
+        // noise lays down broad tonal patches — shadowed hollows, sunlit
+        // rises, dry ground — which is what stops ~4,800 identical tiles
+        // reading as a billiard table. The old per-tile hash is kept on top
+        // for scattered wildflowers, which is detail rather than form; on its
+        // own it was salt-and-pepper over a flat field.
         for r in 0..<Self.mapRows {
             for c in 0..<Self.mapCols {
                 let hashVal = (c * 73 + r * 151) & 0x7FFFFFFF
@@ -229,11 +236,23 @@ public final class VillageMapBuilder {
                 } else if hashVal % 23 == 0 {
                     grassTile = .grassVar2
                 } else {
-                    grassTile = .grass
+                    // Jitter each tile's tone slightly before quantising.
+                    // Without it the four bands meet along straight tile-
+                    // aligned steps and the patches read as rectangles; the
+                    // jitter frays those edges into something organic while
+                    // leaving the underlying patch shape intact.
+                    let jitter = (Double(hashVal % 100) / 100.0 - 0.5) * 0.10
+                    switch Self.groundTone(col: c, row: r) + jitter {
+                    case ..<(-0.18): grassTile = .grassShadow
+                    case 0.22...:    grassTile = .grassSunlit
+                    case 0.06..<0.22: grassTile = .grassDry
+                    default:         grassTile = .grass
+                    }
                 }
                 setGround(c, r, grassTile, code: 0)
             }
         }
+
         _ = assets
 
         // 2. Build Perimeter Boundaries (Dense woods / hedges)
@@ -288,6 +307,37 @@ public final class VillageMapBuilder {
 
     /// A two-tile band of woods around the map, drawn into the canopy layer and
     /// blocked by four rectangles rather than ~560 individual physics bodies.
+    /// Smooth value noise in roughly [-1, 1], deterministic for a given tile.
+    ///
+    /// Bilinear interpolation between hashed lattice points every
+    /// `tonePatchSize` tiles, so tones arrive as patches the size of a
+    /// courtyard rather than as per-tile confetti. Deterministic because the
+    /// village must be identical for every player — SPEC §5's adaptive design
+    /// is the only thing allowed to vary between sessions.
+    private static let tonePatchSize: Double = 9.0
+
+    private static func latticeValue(_ xi: Int, _ yi: Int) -> Double {
+        var h = UInt64(bitPattern: Int64(xi &* 374_761_393 &+ yi &* 668_265_263))
+        h = (h ^ (h >> 13)) &* 1_274_126_177
+        h = h ^ (h >> 16)
+        return Double(h % 2_000) / 1_000.0 - 1.0
+    }
+
+    static func groundTone(col: Int, row: Int) -> Double {
+        let x = Double(col) / tonePatchSize
+        let y = Double(row) / tonePatchSize
+        let x0 = Int(floor(x)), y0 = Int(floor(y))
+        let fx = x - Double(x0), fy = y - Double(y0)
+        // Smoothstep so patch edges are gradients, not seams.
+        let sx = fx * fx * (3 - 2 * fx)
+        let sy = fy * fy * (3 - 2 * fy)
+        let v00 = latticeValue(x0, y0), v10 = latticeValue(x0 + 1, y0)
+        let v01 = latticeValue(x0, y0 + 1), v11 = latticeValue(x0 + 1, y0 + 1)
+        let top = v00 + (v10 - v00) * sx
+        let bottom = v01 + (v11 - v01) * sx
+        return top + (bottom - top) * sy
+    }
+
     private func buildPerimeterBoundaries(in node: SKNode) {
         for c in 0..<Self.mapCols {
             setCanopy(c, 0, .tree)
