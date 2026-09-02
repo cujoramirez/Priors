@@ -77,6 +77,10 @@ public class VillageScene: SKScene {
     private static let deliveryRadius: CGFloat = 40
     private static let refillRadius: CGFloat = 56
 
+    public func setLanternsCarried(_ count: Int) {
+        self.lanternsCarried = max(0, count)
+    }
+
     // Zone Exploration Metrics (SCHEMA §1, §7.1)
     /// nil until the player is inside the armed zone. Was a `0.0` sentinel,
     /// which is a value `currentTime` genuinely takes in tests.

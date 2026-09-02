@@ -2,6 +2,10 @@
 //  SelfPredictionScreen.swift
 //  Priors
 //
+//  Phase 4 — Predicting own behavior under risk.
+//  Presents the self-prediction slider inside an atmospheric frosted card
+//  with illuminated percentage readout and gradient risk track. SPEC §7, §8.
+//
 
 import SwiftUI
 
@@ -10,56 +14,111 @@ public struct SelfPredictionScreen: View {
 
     @State private var sliderValue: Double = 50.0
 
+    // Design Tokens
+    private let roomToneBackground = Color(red: 20 / 255.0, green: 23 / 255.0, blue: 31 / 255.0)
+    private let emberAccent = Color(red: 232 / 255.0, green: 141 / 255.0, blue: 56 / 255.0)
+    private let cardBackground = Color(red: 28 / 255.0, green: 32 / 255.0, blue: 44 / 255.0).opacity(0.85)
+
     public init(onConfirm: ((Double) -> Void)? = nil) {
         self.onConfirm = onConfirm
     }
 
     public var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            // Atmospheric Background with Subtle Radial Ambient Warmth
+            roomToneBackground
+                .ignoresSafeArea()
+
+            RadialGradient(
+                gradient: Gradient(colors: [
+                    emberAccent.opacity(0.08),
+                    Color.clear
+                ]),
+                center: .center,
+                startRadius: 20,
+                endRadius: 400
+            )
+            .ignoresSafeArea()
 
             VStack(spacing: 24) {
                 Spacer()
 
-                Text("Before the paths —\nhow much risk would you have accepted?")
-                    .font(.system(size: 18, weight: .regular))
-                    .multilineTextAlignment(.center)
-                    .foregroundColor(.white)
+                // Centered Frosted Prediction Card
+                VStack(spacing: 22) {
+                    // Header Title & Explainer
+                    VStack(spacing: 8) {
+                        Text("Before the paths —\nhow much risk would you have accepted?")
+                            .font(.system(size: 19, weight: .regular, design: .serif))
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(5)
+                            .foregroundColor(.white.opacity(0.95))
 
-                VStack(spacing: 14) {
-                    // The player is being asked for a percentage and could not
-                    // see which one they had chosen: the track showed a thumb
-                    // and nothing else. The number is the answer they are
-                    // giving, and it is logged as `self_predicted_theta_e`.
-                    Text("\(Int(sliderValue.rounded()))%")
-                        .font(.system(size: 30, weight: .light, design: .serif))
-                        .foregroundColor(.white)
-                        .monospacedDigit()
-                        .accessibilityIdentifier("selfPredictionValue")
-
-                    HStack(spacing: 16) {
-                        Text("0%")
-                            .font(.system(size: 15, weight: .regular))
-                            .foregroundColor(.gray)
-                            .frame(width: 44, alignment: .trailing)
-
-                        RiskSlider(value: $sliderValue)
-
-                        Text("100%")
-                            .font(.system(size: 15, weight: .regular))
-                            .foregroundColor(.gray)
-                            .frame(width: 44, alignment: .leading)
+                        Text("Estimate your threshold for navigating danger when fuel is low.")
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundColor(.white.opacity(0.60))
                     }
-                    .frame(maxWidth: 480)
+
+                    // Large Glowing Value Readout
+                    VStack(spacing: 12) {
+                        Text("\(Int(sliderValue.rounded()))%")
+                            .font(.system(size: 34, weight: .light, design: .serif))
+                            .foregroundColor(emberAccent.opacity(0.95))
+                            .monospacedDigit()
+                            .accessibilityIdentifier("selfPredictionValue")
+                            .shadow(color: emberAccent.opacity(0.35), radius: 8, x: 0, y: 2)
+
+                        HStack(spacing: 16) {
+                            Text("0%")
+                                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.40))
+                                .frame(width: 44, alignment: .trailing)
+
+                            RiskSlider(value: $sliderValue)
+
+                            Text("100%")
+                                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.40))
+                                .frame(width: 44, alignment: .leading)
+                        }
+                        .frame(maxWidth: 460)
+                    }
                 }
+                .padding(.horizontal, 36)
+                .padding(.vertical, 28)
+                .frame(maxWidth: 560)
+                .background(
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(cardBackground)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18)
+                                .stroke(
+                                    LinearGradient(
+                                        colors: [Color.white.opacity(0.18), Color.white.opacity(0.04)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 1
+                                )
+                        )
+                        .shadow(color: Color.black.opacity(0.35), radius: 12, x: 0, y: 6)
+                )
 
                 Spacer()
 
+                // Action Continue Button
                 Button(action: handleConfirm) {
                     Text("[ Continue ]")
-                        .font(.system(size: 17, weight: .medium))
+                        .font(.system(size: 16, weight: .medium, design: .serif))
                         .foregroundColor(.white)
-                        .frame(minWidth: 120, minHeight: 44)
+                        .frame(minWidth: 140, minHeight: 44)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color.white.opacity(0.10))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(emberAccent.opacity(0.4), lineWidth: 1)
+                                )
+                        )
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -77,39 +136,54 @@ public struct SelfPredictionScreen: View {
     }
 }
 
-/// A slider whose whole track responds.
-///
-/// SwiftUI's `Slider` only reacts to a drag that begins on the thumb: pressing
-/// anywhere else on the track does nothing, and a UI test dragging from the
-/// middle of the track left the value untouched. On a screen whose entire
-/// purpose is capturing one number, hunting for a 22pt thumb is the wrong
-/// interaction — and the number it captures is what COPY R5 reads back as
-/// "You said {self_pred_pct}%", so being unable to set it precisely corrupts a
-/// headline claim.
-///
-/// Tap or drag anywhere on the track; both ends are reachable because the
-/// fraction is clamped rather than inset by half a thumb.
+/// A slider whose whole track responds with illuminated glowing progress.
 struct RiskSlider: View {
-    @Binding var value: Double          // 0...100
+    @Binding var value: Double // 0...100
 
     private let thumb: CGFloat = 22
-    private let track: CGFloat = 4
+    private let trackHeight: CGFloat = 6
+
+    // Accent Colors
+    private let emberAccent = Color(red: 232 / 255.0, green: 141 / 255.0, blue: 56 / 255.0)
 
     var body: some View {
         GeometryReader { geo in
             let width = max(geo.size.width, 1)
             let fraction = min(max(value / 100.0, 0), 1)
             ZStack(alignment: .leading) {
+                // Background Track
                 Capsule()
-                    .fill(Color.white.opacity(0.18))
-                    .frame(height: track)
+                    .fill(Color.white.opacity(0.15))
+                    .frame(height: trackHeight)
+
+                // Illuminated Active Track
                 Capsule()
-                    .fill(Color.white.opacity(0.85))
-                    .frame(width: width * fraction, height: track)
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: thumb, height: thumb)
-                    .offset(x: width * fraction - thumb / 2)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.6),
+                                emberAccent.opacity(0.9),
+                                Color.orange
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: width * fraction, height: trackHeight)
+
+                // Glowing Thumb
+                ZStack {
+                    Circle()
+                        .fill(emberAccent.opacity(0.35))
+                        .frame(width: thumb + 8, height: thumb + 8)
+
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: thumb, height: thumb)
+                        .overlay(Circle().stroke(emberAccent.opacity(0.5), lineWidth: 1.5))
+                        .shadow(color: Color.black.opacity(0.4), radius: 4, x: 0, y: 2)
+                }
+                .offset(x: width * fraction - (thumb + 8) / 2.0)
             }
             .frame(width: width, height: 44)
             .contentShape(Rectangle())
@@ -126,8 +200,6 @@ struct RiskSlider: View {
         .accessibilityIdentifier("selfPredictionSlider")
         .accessibilityLabel("Risk you would have accepted")
         .accessibilityValue("\(Int(value.rounded()))%")
-        // Adjustable rather than a button: VoiceOver users can set the value
-        // without needing to land a drag on a 22pt target either.
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: value = min(100, value + 1)

@@ -15,6 +15,7 @@ public enum SessionPhase: Sendable {
     case splash
     case consent
     case temperament
+    case prologue
     case village
     case selfPrediction
     case reading
@@ -37,6 +38,7 @@ struct PriorsApp: App {
         switch args[i + 1] {
         case "consent": return .consent
         case "temperament": return .temperament
+        case "prologue": return .prologue
         case "village": return .village
         case "selfPrediction": return .selfPrediction
         case "title": return .title
@@ -80,6 +82,11 @@ struct PriorsApp: App {
                             selfImageLabel: label
                         )
                         self.coordinator = coord
+                        advance(to: .prologue)
+                    }
+
+                case .prologue:
+                    PrologueScreen {
                         advance(to: .village)
                     }
 
@@ -173,11 +180,12 @@ struct PriorsApp: App {
         case .splash: return 0
         case .consent: return 1
         case .temperament: return 2
-        case .village: return 3
-        case .selfPrediction: return 4
-        case .reading: return 5
-        case .argument: return 6
-        case .title: return 7
+        case .prologue: return 3
+        case .village: return 4
+        case .selfPrediction: return 5
+        case .reading: return 6
+        case .argument: return 7
+        case .title: return 8
         }
     }
 

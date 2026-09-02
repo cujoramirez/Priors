@@ -2,10 +2,10 @@
 //  VillageContainerView.swift
 //  Priors
 //
-//  SwiftUI container view hosting the SpriteKit VillageScene and the
-//  VirtualControls overlay. SPEC §8.2/§8.3: there is no modal — decisions are
-//  armed in the world and resolve there, so this view only wires input in and
-//  resolutions out.
+//  SwiftUI container view hosting the SpriteKit VillageScene, the
+//  VirtualControls overlay, and in-game chapter story banners. SPEC §8.2/§8.3:
+//  there is no modal — decisions are armed in the world and resolve there, so
+//  this view only wires input in, overlays non-blocking banners, and resolutions out.
 //
 
 import SwiftUI
@@ -27,6 +27,27 @@ public struct VillageContainerView: View {
     @State private var canInteract: Bool = false
     @State private var pollTimer: Timer?
 
+    // MARK: - Chapter Story Banners
+    @State private var bannerText: String?
+    @State private var bannerOpacity: Double = 0.0
+    @State private var shownBannerSlots: Set<Int> = []
+    @State private var bannerDismissTask: Task<Void, Never>?
+
+    nonisolated public static func bannerMessage(for slot: Int) -> String? {
+        switch slot {
+        case 0:
+            return "Act I: The Evening Bell — The streets are wide, and the lanterns burn bright."
+        case 10:
+            return "Act II: The Eye in the Frost — Shadows pool at every corner. The frost begins to take the windows."
+        case 15:
+            return "The Ancient Effigy opens its eyes. You are not alone in the cold."
+        case 20:
+            return "Act III: The Dying Flame — The bell has gone silent. Only what you carry remains."
+        default:
+            return nil
+        }
+    }
+
     public init(
         coordinator: VillageCoordinator,
         movementSampler: MovementSampler,
@@ -47,7 +68,36 @@ public struct VillageContainerView: View {
             SpriteView(scene: villageScene)
                 .ignoresSafeArea()
 
-            // 2. Virtual Controls Overlay
+            // 2. In-Game Chapter Banners Floating Overlay (Top-Center, non-blocking)
+            if let text = bannerText {
+                VStack {
+                    Text(text)
+                        .font(.system(size: 14, weight: .medium, design: .serif))
+                        .foregroundColor(Color.white.opacity(0.95))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(
+                            Capsule()
+                                .fill(Color(red: 16 / 255.0, green: 18 / 255.0, blue: 24 / 255.0).opacity(0.88))
+                                .overlay(
+                                    Capsule()
+                                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                                )
+                        )
+                        .padding(.top, 16)
+                        .padding(.horizontal, 32)
+                        .opacity(bannerOpacity)
+                        .shadow(color: Color.black.opacity(0.45), radius: 8, x: 0, y: 4)
+
+                    Spacer()
+                }
+                .allowsHitTesting(false)
+                .transition(.opacity)
+                .accessibilityIdentifier("chapterBanner")
+            }
+
+            // 3. Virtual Controls Overlay
             VirtualControlsView(
                 lanternCount: coordinator.lanternCount,
                 canInteract: canInteract,
@@ -62,6 +112,7 @@ public struct VillageContainerView: View {
         .onAppear {
             movementSampler.start()
             AudioManager.shared.startVillageAudio()
+            villageScene.setLanternsCarried(coordinator.lanternCount)
             coordinator.onSessionComplete = { @MainActor record in
                 onComplete(record)
             }
@@ -75,6 +126,7 @@ public struct VillageContainerView: View {
                     movementSampler: movementSampler,
                     scene: villageScene
                 )
+                checkAndTriggerBanner(for: coordinator.currentSlot)
             }
             // SPEC §8 — the lantern count is the whole HUD, so the scene's task
             // state has to reach it.
@@ -85,6 +137,8 @@ public struct VillageContainerView: View {
                 coordinator.lanternCount = remaining
             }
             coordinator.armNextDecision(scene: villageScene)
+            checkAndTriggerBanner(for: coordinator.currentSlot)
+
             // `.onAppear` can run more than once for the same view (a
             // re-entered tab, a recomposed parent). Leaving the previous timer
             // running would double the poll rate every time.
@@ -102,6 +156,7 @@ public struct VillageContainerView: View {
                     // over) thanks to armNextDecision's own guards.
                     if coordinator.liveDecision == nil && coordinator.currentSlot == 0 && coordinator.decisions.isEmpty {
                         coordinator.armNextDecision(scene: villageScene)
+                        checkAndTriggerBanner(for: 0)
                     }
                 }
             }
@@ -109,6 +164,32 @@ public struct VillageContainerView: View {
         .onDisappear {
             pollTimer?.invalidate()
             pollTimer = nil
+            bannerDismissTask?.cancel()
+            bannerDismissTask = nil
+        }
+    }
+
+    private func checkAndTriggerBanner(for slot: Int) {
+        guard !shownBannerSlots.contains(slot), let message = Self.bannerMessage(for: slot) else { return }
+        shownBannerSlots.insert(slot)
+        showBanner(text: message)
+    }
+
+    private func showBanner(text: String) {
+        bannerDismissTask?.cancel()
+        bannerText = text
+        withAnimation(.easeIn(duration: 0.8)) {
+            bannerOpacity = 1.0
+        }
+        bannerDismissTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_500_000_000) // 3.5s hold
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.8)) {
+                bannerOpacity = 0.0
+            }
+            try? await Task.sleep(nanoseconds: 800_000_000) // fade out duration
+            guard !Task.isCancelled else { return }
+            bannerText = nil
         }
     }
 }

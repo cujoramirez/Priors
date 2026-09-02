@@ -107,13 +107,7 @@ public final class VillageCoordinator: @unchecked Sendable {
             slot: currentSlot,
             state: selectionState
         )
-        // SCHEMA §1 — `predicted_engage` and the four `posterior_*` fields are
-        // captured HERE, before the choice is known, and travel with the
-        // armed decision. They used to be read at resolution: numerically the
-        // same, because the posterior is untouched in between, but honest by
-        // accident rather than by construction.
-        let decision = LiveDecision(design: design, capturedFrom: posterior)
-        let wantedTrait = decision.isSpatial ? Trait.thetaE : Trait.thetaI
+        let wantedTrait = design.trait
         let candidates = scene.decisionLocations.filter {
             $0.trait == wantedTrait && !usedLocationIDs.contains($0.id)
         }
@@ -127,7 +121,21 @@ public final class VillageCoordinator: @unchecked Sendable {
         }
         usedLocationIDs.insert(nearest.id)
 
+        let narrative = ProceduralDilemmaAssembler.assemble(
+            design: design,
+            slot: currentSlot,
+            locationID: nearest.id,
+            sessionSeed: sessionID.hashValue
+        )
+        // SCHEMA §1 — `predicted_engage` and the four `posterior_*` fields are
+        // captured HERE, before the choice is known, and travel with the
+        // armed decision. They used to be read at resolution: numerically the
+        // same, because the posterior is untouched in between, but honest by
+        // accident rather than by construction.
+        let decision = LiveDecision(design: design, capturedFrom: posterior, narrative: narrative)
+
         liveDecision = decision
+        scene.setLanternsCarried(lanternCount)
         scene.armDecision(decision, at: nearest)
 
         // Check if Shadow event should trigger before this decision (SPEC §6.2)
@@ -215,6 +223,7 @@ public final class VillageCoordinator: @unchecked Sendable {
 
         // Update Lantern Inventory
         updateLanternCount(for: design.template, engaged: engaged, price: design.price)
+        scene.setLanternsCarried(lanternCount)
 
         // Update Dusk Effect on Scene
         let newSdE = posterior.meanSD(.thetaE).sd

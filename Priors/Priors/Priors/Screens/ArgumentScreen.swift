@@ -38,6 +38,17 @@ public struct ArgumentScreen: View {
             roomToneBackground
                 .ignoresSafeArea()
 
+            RadialGradient(
+                gradient: Gradient(colors: [
+                    Color(red: 232 / 255.0, green: 141 / 255.0, blue: 56 / 255.0).opacity(0.08),
+                    Color.clear
+                ]),
+                center: .center,
+                startRadius: 20,
+                endRadius: 400
+            )
+            .ignoresSafeArea()
+
             VStack(alignment: .leading, spacing: 20) {
                 if selectedClaim == nil {
                     // Claim Selection View
@@ -127,17 +138,46 @@ public struct ArgumentScreen: View {
                             let supportingDecisions = sessionRecord.decisions.filter { claim.supportingDecisionIDs.contains($0.index) }
                             VStack(spacing: 8) {
                                 ForEach(supportingDecisions) { d in
-                                    HStack {
-                                        Text("Decision #\(d.index + 1) (\(d.template.rawValue.uppercased()))")
-                                            .font(.system(size: 13, design: .monospaced))
-                                            .foregroundColor(.white.opacity(0.7))
+                                    HStack(spacing: 12) {
+                                        Circle()
+                                            .fill(d.engaged ? Color(red: 232/255.0, green: 141/255.0, blue: 56/255.0) : Color.white.opacity(0.3))
+                                            .frame(width: 7, height: 7)
+
+                                        Text("Slot \(d.index + 1)")
+                                            .font(.system(size: 13, weight: .medium, design: .monospaced))
+                                            .foregroundColor(.white.opacity(0.85))
+
+                                        Text(d.template.rawValue.uppercased())
+                                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                            .foregroundColor(.white.opacity(0.6))
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Color.white.opacity(0.08))
+                                            .cornerRadius(4)
+
                                         Spacer()
-                                        Text("Price: \(Int(d.price * 100))% • \(d.engaged ? "Went in" : "Declined") • \(String(format: "%.1f", d.rtSeconds))s")
-                                            .font(.system(size: 13, design: .monospaced))
-                                            .foregroundColor(.white.opacity(0.9))
+
+                                        HStack(spacing: 10) {
+                                            Text("Price \(Int(d.price * 100))%")
+                                                .font(.system(size: 12, design: .monospaced))
+                                                .foregroundColor(.white.opacity(0.7))
+
+                                            Text(d.engaged ? "Engaged" : "Declined")
+                                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                                .foregroundColor(d.engaged ? Color(red: 232/255.0, green: 180/255.0, blue: 120/255.0) : Color.white.opacity(0.5))
+
+                                            Text("\(String(format: "%.1f", d.rtSeconds))s")
+                                                .font(.system(size: 12, design: .monospaced))
+                                                .foregroundColor(.white.opacity(0.6))
+                                        }
                                     }
-                                    .padding(10)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 10)
                                     .background(Color.white.opacity(0.04))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                                    )
                                     .cornerRadius(6)
                                 }
                             }
@@ -148,13 +188,13 @@ public struct ArgumentScreen: View {
                                 .padding(.top, 10)
 
                             VStack(spacing: 12) {
-                                argumentButton("The situation was different") {
+                                argumentButton("The situation was different", icon: "arrow.triangle.branch") {
                                     applyReason(.situation, for: claim)
                                 }
-                                argumentButton("I misread it") {
+                                argumentButton("I misread it", icon: "eye.slash") {
                                     applyReason(.misread, for: claim)
                                 }
-                                argumentButton("That wasn't really me") {
+                                argumentButton("That wasn't really me", icon: "person.crop.circle.badge.questionmark") {
                                     applyReason(.notMe, for: claim)
                                 }
                             }
@@ -239,17 +279,28 @@ public struct ArgumentScreen: View {
         }
     }
 
-    private func argumentButton(_ title: String, action: @escaping () -> Void) -> some View {
+    private func argumentButton(_ title: String, icon: String? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack {
+            HStack(spacing: 12) {
+                if let icon = icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 14))
+                        .foregroundColor(Color(red: 232/255.0, green: 141/255.0, blue: 56/255.0))
+                }
+
                 Text("[ \(title) ]")
                     .font(.system(size: 15, weight: .medium, design: .monospaced))
                     .foregroundColor(.white)
+
                 Spacer()
             }
-            .padding(.vertical, 12)
+            .padding(.vertical, 14)
             .padding(.horizontal, 16)
-            .background(Color.white.opacity(0.08))
+            .background(Color.white.opacity(0.06))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+            )
             .cornerRadius(6)
         }
         .buttonStyle(.plain)
