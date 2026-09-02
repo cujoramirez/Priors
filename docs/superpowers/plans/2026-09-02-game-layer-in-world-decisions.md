@@ -405,7 +405,7 @@ Expected: FAIL — `LiveDecision` does not exist.
 - [ ] **Step 3: Delete `ScenarioDialogView.swift`**
 
 ```bash
-git rm Priors/Priors/Priors/Priors/Village/ScenarioDialogView.swift
+git rm Priors/Priors/Priors/Village/ScenarioDialogView.swift
 ```
 
 - [ ] **Step 4: Write `LiveDecision.swift`**
