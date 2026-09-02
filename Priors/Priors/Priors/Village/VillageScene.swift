@@ -21,8 +21,8 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
     public private(set) var playerNode: PlayerNode!
     public private(set) var npcs: [NPCNode] = []
     public private(set) var eyeNode: EyeNode!
-    public private(set) var triggers: [ScenarioTriggerNode] = []
     public private(set) var mapData: VillageMapData!
+    public private(set) var decisionLocations: [DecisionLocation] = []
 
     // Camera & Lighting
     public private(set) var sceneCamera: SKCameraNode!
@@ -33,9 +33,23 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
     public var movementSampler: MovementSampler?
     private var lastSampleTime: TimeInterval = 0.0
 
-    // Scenario Trigger Proximity Tracking
-    public private(set) var activeTrigger: ScenarioTriggerNode?
-    public var onActiveTriggerChanged: ((ScenarioTriggerNode?) -> Void)?
+    // MARK: - Live decision (SPEC §8.3)
+    //
+    // Exactly one decision is ever live at a time. `armDecision` places
+    // either a ThresholdNode (spatial) or a WaitingVillagerNode (social);
+    // resolution is detected here, in `update(_:)`, and reported through
+    // `onLiveDecisionResolved` rather than any button callback for spatial
+    // decisions — the world resolves itself.
+    private var armedThreshold: ThresholdNode?
+    private var armedVillager: WaitingVillagerNode?
+    // One tuple parameter, not two arguments: the resolution travels as a
+    // single named tuple, so the extra parens around it are load-bearing.
+    public var onLiveDecisionResolved: (((engaged: Bool, metrics: (approachFrac: Double, backtracks: Int, idleMs: Int))) -> Void)?
+
+    private var isInsideArmedZone: Bool = false
+    private var isInteractHeld: Bool = false
+    private var interactHoldStartTime: TimeInterval?
+    private static let socialHoldDuration: TimeInterval = 0.6
 
     // MARK: - The task (SPEC §8)
     //
@@ -111,7 +125,7 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
         let buildResult = VillageMapBuilder.shared.buildVillage(in: worldNode)
         self.mapData = buildResult.mapData
         self.undeliveredDoors = buildResult.mapData.doorPositions
-        self.triggers = buildResult.triggers
+        self.decisionLocations = buildResult.decisionLocations
         self.eyeNode = buildResult.eyeNode
 
         // 3. Player Node
@@ -238,8 +252,8 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
         // Smooth Camera Follow with clamping
         updateCameraPosition()
 
-        // Active Trigger Proximity & Metric Tracking
-        updateTriggerProximity(currentTime: currentTime)
+        // Armed live decision: zone dwell, crossing / hold resolution
+        updateArmedDecision(currentTime: currentTime)
 
         // Eye Proximity Tracking
         updateEyeProximity(currentTime: currentTime)
@@ -311,53 +325,103 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
         cam.position.y += (targetY - cam.position.y) * lerpFactor
     }
 
-    private func updateTriggerProximity(currentTime: TimeInterval) {
+    /// True only when a social decision is armed and the player is close
+    /// enough to start holding Interact — drives VirtualControlsView's
+    /// `canInteract`.
+    public var canInteractNow: Bool {
+        guard let villager = armedVillager, let player = playerNode else { return false }
+        return villager.isPlayerClose(playerPosition: player.position)
+    }
+
+    public func setInteractPressed(_ pressed: Bool) {
+        isInteractHeld = pressed
+        interactHoldStartTime = pressed ? nil : interactHoldStartTime
+    }
+
+    private func updateArmedDecision(currentTime: TimeInterval) {
         guard let player = playerNode else { return }
 
-        var nearestTrigger: ScenarioTriggerNode? = nil
-        var nearestDistance: CGFloat = .infinity
+        if let threshold = armedThreshold {
+            let dist = hypot(player.position.x - threshold.position.x,
+                             player.position.y - threshold.position.y)
+            let inZone = dist <= threshold.radius
 
-        for trigger in triggers {
-            let dist = hypot(player.position.x - trigger.position.x, player.position.y - trigger.position.y)
-            if dist <= trigger.radius && dist < nearestDistance {
-                nearestDistance = dist
-                nearestTrigger = trigger
-            }
-        }
-
-        if nearestTrigger !== activeTrigger {
-            activeTrigger = nearestTrigger
-            onActiveTriggerChanged?(activeTrigger)
-
-            if activeTrigger != nil {
-                // Entered new trigger zone
+            if inZone, !isInsideArmedZone {
+                isInsideArmedZone = true
                 zoneEntryTime = currentTime
                 zoneLastMovementTime = currentTime
                 zoneIdleDuration = 0.0
-                zoneMinDistance = nearestDistance
+                zoneMinDistance = dist
                 zoneBacktrackCount = 0
                 zonePreviousDirection = player.currentDirection
-            }
-        } else if activeTrigger != nil {
-            // Still in zone: track metrics
-            if player.isMoving {
-                zoneLastMovementTime = currentTime
-                if let prevDir = zonePreviousDirection, prevDir != player.currentDirection {
-                    // Reversal / backtrack
-                    if (prevDir == .down && player.currentDirection == .up) ||
-                       (prevDir == .up && player.currentDirection == .down) ||
-                       (prevDir == .left && player.currentDirection == .right) ||
-                       (prevDir == .right && player.currentDirection == .left) {
+            } else if inZone {
+                if player.isMoving {
+                    zoneLastMovementTime = currentTime
+                    if let prevDir = zonePreviousDirection, prevDir != player.currentDirection,
+                       isOpposite(prevDir, player.currentDirection) {
                         zoneBacktrackCount += 1
                     }
+                    zonePreviousDirection = player.currentDirection
+                } else {
+                    zoneIdleDuration += (currentTime - zoneLastMovementTime)
+                    zoneLastMovementTime = currentTime
                 }
-                zonePreviousDirection = player.currentDirection
-            } else {
-                zoneIdleDuration += (currentTime - zoneLastMovementTime)
-                zoneLastMovementTime = currentTime
+                zoneMinDistance = min(zoneMinDistance, dist)
+            } else if isInsideArmedZone {
+                // Left the zone: resolve now. Crossing = got within
+                // commitRadius before leaving; otherwise a decline.
+                isInsideArmedZone = false
+                let engaged = zoneMinDistance <= threshold.commitRadius
+                let metrics = currentZoneMetrics(zoneRadius: threshold.radius)
+                threshold.removeFromParent()
+                armedThreshold = nil
+                onLiveDecisionResolved?((engaged: engaged, metrics: metrics))
             }
-            zoneMinDistance = min(zoneMinDistance, nearestDistance)
+            return
         }
+
+        if let villager = armedVillager {
+            let close = villager.isPlayerClose(playerPosition: player.position)
+            let declineDistance = villager.approachRadius * 2.0
+            let dist = hypot(player.position.x - villager.position.x,
+                             player.position.y - villager.position.y)
+
+            if close, isInteractHeld {
+                if interactHoldStartTime == nil { interactHoldStartTime = currentTime }
+                if currentTime - (interactHoldStartTime ?? currentTime) >= Self.socialHoldDuration {
+                    let metrics = (approachFrac: 1.0, backtracks: 0,
+                                   idleMs: Int((currentTime - zoneEntryTime) * 1000))
+                    villager.removeFromParent()
+                    armedVillager = nil
+                    interactHoldStartTime = nil
+                    onLiveDecisionResolved?((engaged: true, metrics: metrics))
+                }
+                return
+            }
+            interactHoldStartTime = nil
+
+            if villager.hasArrived, zoneEntryTime == 0.0, dist <= declineDistance {
+                zoneEntryTime = currentTime
+            }
+            if villager.hasArrived, dist > declineDistance, zoneEntryTime > 0.0 {
+                let metrics = (approachFrac: close ? 1.0 : 0.5, backtracks: 0,
+                               idleMs: Int((currentTime - zoneEntryTime) * 1000))
+                villager.removeFromParent()
+                armedVillager = nil
+                zoneEntryTime = 0.0
+                onLiveDecisionResolved?((engaged: false, metrics: metrics))
+            }
+        }
+    }
+
+    private func isOpposite(_ a: Direction, _ b: Direction) -> Bool {
+        (a == .down && b == .up) || (a == .up && b == .down)
+            || (a == .left && b == .right) || (a == .right && b == .left)
+    }
+
+    private func currentZoneMetrics(zoneRadius: CGFloat) -> (approachFrac: Double, backtracks: Int, idleMs: Int) {
+        let approach = max(0.0, min(1.0, Double(1.0 - (zoneMinDistance / zoneRadius))))
+        return (approachFrac: approach, backtracks: zoneBacktrackCount, idleMs: Int(zoneIdleDuration * 1000))
     }
 
     private func updateEyeProximity(currentTime: TimeInterval) {
@@ -378,17 +442,6 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
         }
     }
 
-    // MARK: - Scenario Metrics Extraction (SCHEMA §1, §7.1)
-
-    public func currentScenarioMetrics() -> (approachFrac: Double, backtracks: Int, idleMs: Int) {
-        guard let trigger = activeTrigger else {
-            return (approachFrac: 0.5, backtracks: 0, idleMs: 0)
-        }
-        let approach = max(0.0, min(1.0, Double(1.0 - (zoneMinDistance / trigger.radius))))
-        let idle = Int(zoneIdleDuration * 1000)
-        return (approachFrac: approach, backtracks: zoneBacktrackCount, idleMs: idle)
-    }
-
     // MARK: - In-Village Events (SPEC §6)
 
     /// §6.2 Predictive Shadow
@@ -406,5 +459,35 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
     /// §6.3 The Eye
     public func triggerEye(duration: TimeInterval = 3.0, onComplete: (() -> Void)? = nil) {
         eyeNode.flash(duration: duration, onComplete: onComplete)
+    }
+
+    /// SPEC §8.3 — arms exactly one decision at a time. Removes whatever was
+    /// previously armed first (should never happen in practice, since
+    /// VillageCoordinator only arms the next slot after the current one
+    /// resolves, but this keeps the invariant true even under a
+    /// double-call).
+    public func armDecision(_ decision: LiveDecision, at location: DecisionLocation) {
+        armedThreshold?.removeFromParent()
+        armedThreshold = nil
+        armedVillager?.removeFromParent()
+        armedVillager = nil
+        isInsideArmedZone = false
+        interactHoldStartTime = nil
+        zoneEntryTime = 0.0
+
+        if decision.isSpatial {
+            let node = ThresholdNode(decision: decision)
+            node.position = location.position
+            worldNode.addChild(node)
+            armedThreshold = node
+        } else {
+            let node = WaitingVillagerNode(decision: decision, id: "social_\(location.id)")
+            let approachOffset = CGPoint(x: CGFloat.random(in: -60...60), y: CGFloat.random(in: -60...60))
+            worldNode.addChild(node)
+            node.walkIn(to: location.position,
+                        from: CGPoint(x: location.position.x + approachOffset.x,
+                                      y: location.position.y + approachOffset.y))
+            armedVillager = node
+        }
     }
 }
