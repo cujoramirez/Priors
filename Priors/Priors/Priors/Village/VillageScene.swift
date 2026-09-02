@@ -333,7 +333,13 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
         return villager.isPlayerClose(playerPosition: player.position)
     }
 
+    /// Idempotent by contract: only a genuine false->true / true->false
+    /// transition does anything. A repeated `true` (a per-frame poll, a
+    /// re-fired SwiftUI onChange) must not restart the hold timer, or every
+    /// social decision would resolve as a decline. Task 8's VirtualControls
+    /// happens to de-duplicate today; this does not rely on that.
     public func setInteractPressed(_ pressed: Bool) {
+        guard pressed != isInteractHeld else { return }
         isInteractHeld = pressed
         interactHoldStartTime = pressed ? nil : interactHoldStartTime
     }
@@ -386,26 +392,53 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
             let dist = hypot(player.position.x - villager.position.x,
                              player.position.y - villager.position.y)
 
+            // Approach-phase zone dwell, tracked before the hold branch so it
+            // runs on every frame the player is in the zone — including the
+            // frames they spend holding Interact. Same instrumentation the
+            // spatial branch uses, so a social decision's approachFrac and
+            // backtracks are observed quantities rather than constants. The
+            // zone here is the decline radius, which opens once the villager
+            // has stopped and the player has come inside it.
+            if villager.hasArrived, dist <= declineDistance {
+                if zoneEntryTime == 0.0 {
+                    zoneEntryTime = currentTime
+                    zoneLastMovementTime = currentTime
+                    zoneIdleDuration = 0.0
+                    zoneMinDistance = dist
+                    zoneBacktrackCount = 0
+                    zonePreviousDirection = player.currentDirection
+                } else {
+                    if player.isMoving {
+                        zoneLastMovementTime = currentTime
+                        if let prevDir = zonePreviousDirection, prevDir != player.currentDirection,
+                           isOpposite(prevDir, player.currentDirection) {
+                            zoneBacktrackCount += 1
+                        }
+                        zonePreviousDirection = player.currentDirection
+                    } else {
+                        zoneIdleDuration += (currentTime - zoneLastMovementTime)
+                        zoneLastMovementTime = currentTime
+                    }
+                    zoneMinDistance = min(zoneMinDistance, dist)
+                }
+            }
+
             if close, isInteractHeld {
                 if interactHoldStartTime == nil { interactHoldStartTime = currentTime }
                 if currentTime - (interactHoldStartTime ?? currentTime) >= Self.socialHoldDuration {
-                    let metrics = (approachFrac: 1.0, backtracks: 0,
-                                   idleMs: Int((currentTime - zoneEntryTime) * 1000))
+                    let metrics = currentSocialMetrics(zoneRadius: declineDistance, currentTime: currentTime)
                     villager.removeFromParent()
                     armedVillager = nil
                     interactHoldStartTime = nil
+                    zoneEntryTime = 0.0
                     onLiveDecisionResolved?((engaged: true, metrics: metrics))
                 }
                 return
             }
             interactHoldStartTime = nil
 
-            if villager.hasArrived, zoneEntryTime == 0.0, dist <= declineDistance {
-                zoneEntryTime = currentTime
-            }
             if villager.hasArrived, dist > declineDistance, zoneEntryTime > 0.0 {
-                let metrics = (approachFrac: close ? 1.0 : 0.5, backtracks: 0,
-                               idleMs: Int((currentTime - zoneEntryTime) * 1000))
+                let metrics = currentSocialMetrics(zoneRadius: declineDistance, currentTime: currentTime)
                 villager.removeFromParent()
                 armedVillager = nil
                 zoneEntryTime = 0.0
@@ -422,6 +455,18 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
     private func currentZoneMetrics(zoneRadius: CGFloat) -> (approachFrac: Double, backtracks: Int, idleMs: Int) {
         let approach = max(0.0, min(1.0, Double(1.0 - (zoneMinDistance / zoneRadius))))
         return (approachFrac: approach, backtracks: zoneBacktrackCount, idleMs: Int(zoneIdleDuration * 1000))
+    }
+
+    /// Social counterpart. `approachFrac` and `backtracks` are the same
+    /// observed quantities as the spatial case, measured against the decline
+    /// radius. `idleMs` deliberately keeps its social meaning — elapsed time
+    /// since the player first entered the zone, not stationary time — and is
+    /// guarded so an unset `zoneEntryTime` can never leak system uptime into
+    /// a SCHEMA §1 field.
+    private func currentSocialMetrics(zoneRadius: CGFloat, currentTime: TimeInterval) -> (approachFrac: Double, backtracks: Int, idleMs: Int) {
+        let approach = max(0.0, min(1.0, Double(1.0 - (zoneMinDistance / zoneRadius))))
+        let idle = zoneEntryTime > 0.0 ? Int((currentTime - zoneEntryTime) * 1000) : 0
+        return (approachFrac: approach, backtracks: zoneBacktrackCount, idleMs: idle)
     }
 
     private func updateEyeProximity(currentTime: TimeInterval) {
@@ -472,6 +517,7 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
         armedVillager?.removeFromParent()
         armedVillager = nil
         isInsideArmedZone = false
+        isInteractHeld = false
         interactHoldStartTime = nil
         zoneEntryTime = 0.0
 
