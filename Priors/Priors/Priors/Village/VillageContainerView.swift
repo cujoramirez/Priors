@@ -112,6 +112,7 @@ public struct VillageContainerView: View {
         .onAppear {
             movementSampler.start()
             AudioManager.shared.startVillageAudio()
+            villageScene.setCarryAllowance(coordinator.carryAllowance)
             villageScene.setLanternsCarried(coordinator.lanternCount)
             coordinator.onSessionComplete = { @MainActor record in
                 onComplete(record)

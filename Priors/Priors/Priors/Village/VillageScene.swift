@@ -73,12 +73,26 @@ public class VillageScene: SKScene {
     public var onLanternDelivered: ((Int) -> Void)?
     public var onLanternsRefilled: ((Int) -> Void)?
     public private(set) var lanternsCarried: Int = 3
-    private static let carryCapacity = 3
+    /// SPEC §4 — how many lanterns the well is willing to hand back. Starts at
+    /// capacity and is lowered permanently by decision-driven losses, so a
+    /// lantern gambled away on a PATH or given away on a GIVE stays gone for
+    /// the run. Refilling to a flat `carryCapacity` refunded every loss at the
+    /// next well visit, which left the template prices with no textural stake
+    /// behind them at all.
+    public private(set) var carryAllowance: Int = 3
+    public static let carryCapacity = 3
     private static let deliveryRadius: CGFloat = 40
     private static let refillRadius: CGFloat = 56
 
     public func setLanternsCarried(_ count: Int) {
         self.lanternsCarried = max(0, count)
+    }
+
+    /// The ceiling the well refills to. Clamped to `carryCapacity` so a TRADE
+    /// win cannot raise the run's standing allowance above what the Runner can
+    /// physically carry.
+    public func setCarryAllowance(_ allowance: Int) {
+        self.carryAllowance = min(Self.carryCapacity, max(0, allowance))
     }
 
     // Zone Exploration Metrics (SCHEMA §1, §7.1)
@@ -303,10 +317,13 @@ public class VillageScene: SKScene {
             onLanternDelivered?(lanternsCarried)
         }
 
-        if lanternsCarried < Self.carryCapacity, !undeliveredDoors.isEmpty {
+        // Top up to the standing allowance, not to capacity — see
+        // `carryAllowance`. When losses have driven the allowance to zero the
+        // well has nothing to give, and the run ends the way it earned.
+        if lanternsCarried < carryAllowance, !undeliveredDoors.isEmpty {
             let well = map.playerSpawnPosition
             if hypot(well.x - player.position.x, well.y - player.position.y) < Self.refillRadius {
-                lanternsCarried = Self.carryCapacity
+                lanternsCarried = carryAllowance
                 onLanternsRefilled?(lanternsCarried)
             }
         }
