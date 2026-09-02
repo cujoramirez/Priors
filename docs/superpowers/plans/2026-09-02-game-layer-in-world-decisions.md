@@ -952,7 +952,7 @@ git commit -m "VirtualControls: interact button becomes press-and-hold, not tap"
 
 **Interfaces:**
 - Consumes: `DecisionLocation`, `ThresholdNode`, `WaitingVillagerNode`, `LiveDecision` from Tasks 4-7.
-- Produces: `VillageScene.armDecision(_ decision: LiveDecision, at location: DecisionLocation)`, `VillageScene.setInteractPressed(_ pressed: Bool)`, `VillageScene.onLiveDecisionResolved: ((engaged: Bool, metrics: (approachFrac: Double, backtracks: Int, idleMs: Int)) -> Void)?`, `VillageScene.decisionLocations: [DecisionLocation]` (exposed read-only for `VillageCoordinator` to pick from), `VillageScene.canInteractNow: Bool` (drives the button's `canInteract` — true only near a live social decision, ready to hold).
+- Produces: `VillageScene.armDecision(_ decision: LiveDecision, at location: DecisionLocation)`, `VillageScene.setInteractPressed(_ pressed: Bool)`, `VillageScene.onLiveDecisionResolved: (((engaged: Bool, metrics: (approachFrac: Double, backtracks: Int, idleMs: Int))) -> Void)?`, `VillageScene.decisionLocations: [DecisionLocation]` (exposed read-only for `VillageCoordinator` to pick from), `VillageScene.canInteractNow: Bool` (drives the button's `canInteract` — true only near a live social decision, ready to hold).
 
 **Mechanics:**
 - Spatial: reuses the existing zone-dwell tracking (`zoneMinDistance`, `zoneIdleDuration`, `zoneBacktrackCount`) against the armed `ThresholdNode`'s `radius`/`commitRadius`. Resolution fires automatically the instant the player's distance from the node's centre exceeds `radius` again, having been inside it — `engaged = (zoneMinDistance <= node.commitRadius)`.
@@ -989,7 +989,7 @@ git commit -m "VirtualControls: interact button becomes press-and-hold, not tap"
     // decisions — the world resolves itself.
     private var armedThreshold: ThresholdNode?
     private var armedVillager: WaitingVillagerNode?
-    public var onLiveDecisionResolved: (((engaged: Bool, metrics: (approachFrac: Double, backtracks: Int, idleMs: Int)) -> Void))?
+    public var onLiveDecisionResolved: (((engaged: Bool, metrics: (approachFrac: Double, backtracks: Int, idleMs: Int))) -> Void)?
 
     private var isInsideArmedZone: Bool = false
     private var isInteractHeld: Bool = false
