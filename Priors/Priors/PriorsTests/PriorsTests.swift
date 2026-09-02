@@ -235,17 +235,23 @@ struct PriorsTests {
         #expect(metrics.rtRatio >= 0.0)
     }
 
-    @Test func scenarioPromptFormatting() async throws {
+    @Test func liveDecisionFormatting() async throws {
         let post = Posterior()
         let state = SelectionState()
 
         for slot in 0..<6 {
             let design = ADOSelector.selectDesign(posterior: post, slot: slot, state: state)
-            let prompt = ScenarioPromptData(design: design)
-            #expect(!prompt.title.isEmpty)
-            #expect(!prompt.bodyText.isEmpty)
-            #expect(!prompt.engageButtonTitle.isEmpty)
-            #expect(!prompt.declineButtonTitle.isEmpty)
+            let decision = LiveDecision(design: design)
+            #expect(!decision.phrase.isEmpty)
+            #expect(!decision.phrase.contains("%"))
+            #expect(decision.band >= 1 && decision.band <= 7)
+            #expect(decision.visualIntensity >= 0.0 && decision.visualIntensity <= 1.0)
+            let expectedSpatial: Bool
+            switch design.template {
+            case .path, .detour, .trade: expectedSpatial = true
+            case .error, .credit, .give: expectedSpatial = false
+            }
+            #expect(decision.isSpatial == expectedSpatial)
         }
     }
 
