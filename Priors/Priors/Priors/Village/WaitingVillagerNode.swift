@@ -50,6 +50,9 @@ public final class WaitingVillagerNode: SKNode {
         let intensity = decision.visualIntensity
         let r = Self.poolRadius * DecisionIntensityStyle.poolRadiusFraction(intensity)
         darknessPool = SKShapeNode(ellipseIn: CGRect(x: -r, y: -r - 12, width: r * 2, height: r * 1.3))
+        // A flat ellipse with a hard edge read as a hole cut in the grass.
+        // Soft fill, crisp rim — see `DecisionIntensityStyle.poolFillTexture`.
+        darknessPool.fillTexture = DecisionIntensityStyle.poolFillTexture()
         darknessPool.fillColor = SKColor(white: 0.0, alpha: DecisionIntensityStyle.poolAlpha(intensity))
         darknessPool.strokeColor = SKColor(white: 0.0, alpha: DecisionIntensityStyle.rimAlpha(intensity))
         darknessPool.lineWidth = DecisionIntensityStyle.rimWidth(intensity)

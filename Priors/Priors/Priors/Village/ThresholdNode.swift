@@ -150,6 +150,8 @@ public final class ThresholdNode: SKNode {
         // Fill and rim carry their own alphas so the two channels stay
         // independent; the node's own `alpha` is left at 1 so it remains free
         // for the resolution fade-out.
+        // Soft fill, crisp rim — see `DecisionIntensityStyle.poolFillTexture`.
+        darknessOverlay.fillTexture = DecisionIntensityStyle.poolFillTexture()
         darknessOverlay.fillColor = SKColor(white: 0.0, alpha: DecisionIntensityStyle.poolAlpha(clamped))
         darknessOverlay.strokeColor = SKColor(white: 0.0, alpha: DecisionIntensityStyle.rimAlpha(clamped))
         darknessOverlay.lineWidth = DecisionIntensityStyle.rimWidth(clamped)
