@@ -115,7 +115,7 @@ public struct SelfPredictionScreen: View {
 
                 // Action Continue Button
                 Button(action: handleConfirm) {
-                    Text("[ Continue ]")
+                    Text("Continue")
                         .font(.system(size: 16, weight: .medium, design: .serif))
                         .foregroundColor(.white)
                         .frame(minWidth: 140, minHeight: 44)

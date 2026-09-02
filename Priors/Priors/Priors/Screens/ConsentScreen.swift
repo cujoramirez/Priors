@@ -64,23 +64,11 @@ public struct ConsentScreen: View {
 
                 VStack(spacing: 20) {
                     // Header Badge
-                    HStack(spacing: 8) {
-                        Image(systemName: "shield.lefthalf.filled")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(emberAccent)
-
-                        Text("ETHICAL TRANSPARENCY")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundColor(emberAccent.opacity(0.9))
-                            .kerning(1.5)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 5)
-                    .background(
-                        Capsule()
-                            .fill(emberAccent.opacity(0.12))
-                            .overlay(Capsule().stroke(emberAccent.opacity(0.25), lineWidth: 1))
-                    )
+                    // The "ETHICAL TRANSPARENCY" badge is gone. COPY.md is final wording
+                    // and never contained it; an all-caps kerned label announcing a
+                    // screen's own virtue is exactly the throat-clearing its voice
+                    // rules rule out. The disclosure below says the thing itself.
+                    EmptyView()
 
                     // Core Headline & Explanation
                     VStack(spacing: 12) {
@@ -101,7 +89,7 @@ public struct ConsentScreen: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .foregroundColor(.white.opacity(0.95))
 
-                        Text("All telemetry, movement paths, and behavioral models\nremain strictly on this device.")
+                        Text("Everything stays on this device.")
                             .font(.system(size: 14, weight: .regular))
                             .multilineTextAlignment(.center)
                             .lineSpacing(4)
@@ -139,7 +127,7 @@ public struct ConsentScreen: View {
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(emberAccent)
 
-                            Text("[ Start ]")
+                            Text("Start")
                                 .font(.system(size: 16, weight: .medium, design: .serif))
                                 .foregroundColor(.white)
                         }
@@ -164,7 +152,7 @@ public struct ConsentScreen: View {
                                 .font(.system(size: 14, weight: .regular))
                                 .foregroundColor(.white.opacity(0.7))
 
-                            Text("[ What's collected ]")
+                            Text("What's collected")
                                 .font(.system(size: 15, weight: .regular, design: .serif))
                                 .foregroundColor(.white.opacity(0.85))
                         }
@@ -198,36 +186,20 @@ public struct ConsentScreen: View {
                     Spacer()
 
                     VStack(spacing: 22) {
-                        // Modal Title
-                        HStack {
-                            Image(systemName: "lock.shield.fill")
-                                .foregroundColor(emberAccent)
-                            Text("Data Collection Breakdown")
-                                .font(.system(size: 17, weight: .medium, design: .serif))
-                                .foregroundColor(.white)
-                            Spacer()
-                        }
-                        .padding(.bottom, 4)
-
-                        // 3 Categorized Detail Items
-                        VStack(spacing: 14) {
-                            detailRow(
-                                icon: "timer",
-                                title: "Choices & Decision Latencies",
-                                description: "Every choice you make, and how many milliseconds you hesitated before deciding."
-                            )
-
-                            detailRow(
-                                icon: "figure.walk",
-                                title: "Movement & Exploration Paths",
-                                description: "Where you walked, where you paused, and where you turned back along the road."
-                            )
-
-                            detailRow(
-                                icon: "eye.slash",
-                                title: "Unobserved Integrity Decisions",
-                                description: "What you chose when nothing in the village appeared to be watching."
-                            )
+                        // COPY.md's details panel, verbatim. This screen had
+                        // drifted to invented headers ("Choices & Decision
+                        // Latencies") over rewritten descriptions; COPY.md
+                        // states it is final wording and must not be rewritten,
+                        // and its own voice rules ban the adjectives and the
+                        // hedging that crept in. The icons stay: they are
+                        // presentation, not copy.
+                        VStack(alignment: .leading, spacing: 16) {
+                            detailRow(icon: "timer",
+                                      text: "Every choice, and how long you took.")
+                            detailRow(icon: "figure.walk",
+                                      text: "Where you walked, and where you stopped.")
+                            detailRow(icon: "eye.slash",
+                                      text: "What you did when nothing was watching.")
                         }
 
                         Divider()
@@ -239,7 +211,7 @@ public struct ConsentScreen: View {
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(.white.opacity(0.95))
 
-                            Text("Close this and data recording continues locally.")
+                            Text("Close this and it still happens.")
                                 .font(.system(size: 13, weight: .regular))
                                 .foregroundColor(.white.opacity(0.55))
                         }
@@ -259,7 +231,7 @@ public struct ConsentScreen: View {
                     Spacer()
 
                     Button(action: handleCloseDetails) {
-                        Text("[ Close ]")
+                        Text("Close")
                             .font(.system(size: 16, weight: .medium, design: .serif))
                             .foregroundColor(.white)
                             .frame(minWidth: 120, minHeight: 44)
@@ -290,24 +262,20 @@ public struct ConsentScreen: View {
         }
     }
 
-    private func detailRow(icon: String, title: String, description: String) -> some View {
-        HStack(alignment: .top, spacing: 14) {
+    private func detailRow(icon: String, text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
             Image(systemName: icon)
-                .font(.system(size: 16))
+                .font(.system(size: 15))
                 .foregroundColor(emberAccent.opacity(0.9))
-                .frame(width: 24, height: 24)
+                .frame(width: 22, alignment: .center)
+                .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.white.opacity(0.95))
+            Text(text)
+                .font(.system(size: 15, weight: .regular))
+                .foregroundColor(.white.opacity(0.92))
+                .fixedSize(horizontal: false, vertical: true)
 
-                Text(description)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(.white.opacity(0.60))
-                    .lineSpacing(2)
-            }
-            Spacer()
+            Spacer(minLength: 0)
         }
     }
 

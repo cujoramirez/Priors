@@ -45,6 +45,10 @@ struct LanternEconomyTests {
         #expect(scene.lanternsCarried != VillageScene.carryCapacity)
     }
 
+    /// Scene-level behaviour: an allowance of 0 hands back nothing. The
+    /// coordinator now floors the allowance at 1 so a real run never reaches
+    /// this state (see `theTaskNeverBecomesImpossibleHoweverBadlyTheRunGoes`),
+    /// but the scene must still do the arithmetic it is told to do.
     @Test func wellGivesNothingOnceTheAllowanceIsSpent() async throws {
         let scene = presentedScene()
         scene.setCarryAllowance(0)
@@ -159,5 +163,50 @@ struct LanternEconomyTests {
         }
 
         #expect(highWaterMark == VillageScene.carryCapacity)
+    }
+
+    /// The regression this suite missed the first time. Making losses
+    /// permanent with no floor meant that once GIVE/PATH/TRADE had taken three
+    /// lanterns, the allowance was 0, the well handed back nothing, and the
+    /// Runner could never carry a lantern again — so SPEC §8's "Task: deliver
+    /// lanterns to houses before dark" became impossible for the rest of the
+    /// session while the session kept running. Stakes are supposed to bite,
+    /// not end the game silently.
+    @Test func theTaskNeverBecomesImpossibleHoweverBadlyTheRunGoes() async throws {
+        let consent = ConsentLog()
+        consent.consentDwellMs = 2400
+        consent.consentReadDetails = true
+
+        let coordinator = VillageCoordinator(
+            consentLog: consent,
+            selfImageLabel: .curious,
+            eyeEnabled: false
+        )
+        let scene = presentedScene()
+        let sampler = MovementSampler()
+
+        coordinator.armNextDecision(scene: scene)
+
+        var guardCounter = 0
+        while coordinator.currentSlot < Scenarios.decisionCount, guardCounter < 60 {
+            guardCounter += 1
+            coordinator.resolveLiveDecision(
+                engaged: true,
+                zoneDwellSeconds: 1.2,
+                metrics: (approachFrac: 0.5, backtracks: 0, idleMs: 100),
+                movementSampler: sampler,
+                scene: scene
+            )
+            #expect(
+                coordinator.carryAllowance >= 1,
+                "allowance hit \(coordinator.carryAllowance) at slot \(coordinator.currentSlot): the well can no longer hand out a lantern and no house can ever be lit again"
+            )
+        }
+
+        // And prove it end-to-end: empty-handed at the well, still gets one.
+        scene.setCarryAllowance(coordinator.carryAllowance)
+        scene.setLanternsCarried(0)
+        scene.update(1.0)
+        #expect(scene.lanternsCarried >= 1)
     }
 }

@@ -90,7 +90,7 @@ public struct TitleScreen: View {
                                 .font(.system(size: 13, weight: .regular))
                                 .foregroundColor(.white.opacity(0.6))
 
-                            Text("[ Begin again ]")
+                            Text("Begin again")
                                 .font(.system(size: 15, weight: .regular, design: .serif))
                                 .foregroundColor(.white.opacity(0.75))
                         }

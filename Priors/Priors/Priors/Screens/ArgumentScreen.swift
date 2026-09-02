@@ -90,7 +90,7 @@ public struct ArgumentScreen: View {
 
                     HStack {
                         Spacer()
-                        Button("[ None of them ]") {
+                        Button("None of them") {
                             finishArgument()
                         }
                         .font(.system(size: 14, weight: .medium, design: .monospaced))
@@ -227,7 +227,7 @@ public struct ArgumentScreen: View {
 
                             HStack {
                                 Spacer()
-                                Button("[ Continue ]") {
+                                Button("Continue") {
                                     finishArgument()
                                 }
                                 .font(.system(size: 15, weight: .medium, design: .monospaced))
@@ -255,14 +255,14 @@ public struct ArgumentScreen: View {
 
                             HStack(spacing: 24) {
                                 Spacer()
-                                Button("[ The fast one ]") {
+                                Button("The fast one") {
                                     dualHypothesisFastChoice = true
                                     finishArgument()
                                 }
                                 .font(.system(size: 14, weight: .medium, design: .monospaced))
                                 .foregroundColor(.white)
 
-                                Button("[ The slow one ]") {
+                                Button("The slow one") {
                                     dualHypothesisFastChoice = false
                                     finishArgument()
                                 }
@@ -288,7 +288,7 @@ public struct ArgumentScreen: View {
                         .foregroundColor(Color(red: 232/255.0, green: 141/255.0, blue: 56/255.0))
                 }
 
-                Text("[ \(title) ]")
+                Text("\(title)")
                     .font(.system(size: 15, weight: .medium, design: .monospaced))
                     .foregroundColor(.white)
 

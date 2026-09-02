@@ -130,7 +130,7 @@ public struct ReadingScreen: View {
                     HStack {
                         Spacer()
                         HStack(spacing: 6) {
-                            Text("[ Tap to continue ]")
+                            Text("Tap to continue")
                                 .font(.system(size: 13, weight: .light, design: .monospaced))
                                 .foregroundColor(.white.opacity(0.40))
                             Image(systemName: "chevron.right")

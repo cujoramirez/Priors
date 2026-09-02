@@ -59,8 +59,12 @@ public final class ThresholdNode: SKNode {
         darknessOverlay.zPosition = 4
         darknessOverlay.blendMode = .alpha
 
-        phraseLabel = SKLabelNode(fontNamed: "Menlo")
-        phraseLabel.fontSize = 12
+        // Menlo at 12pt over a textured tilemap read as debug output and
+        // was marginal to read at arm's length. The phrase is one half of
+        // SPEC §8.2's price channel, so its legibility is part of the
+        // instrument, not decoration.
+        phraseLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+        phraseLabel.fontSize = 14
         phraseLabel.fontColor = SKColor(white: 0.95, alpha: 0.95)
         phraseLabel.position = CGPoint(x: 0, y: 44)
         phraseLabel.numberOfLines = 2
@@ -69,9 +73,11 @@ public final class ThresholdNode: SKNode {
         phraseLabel.text = decision.phrase
         phraseLabel.zPosition = 20
 
-        // Translucent dark backing pill for high-contrast readability over tilemaps
-        let pillRect = CGRect(x: -90, y: 34, width: 180, height: 38)
-        textPill = SKShapeNode(rect: pillRect, cornerRadius: 6)
+        // Backing pill for readability over the tilemap. Sized from the
+        // label's own laid-out frame rather than a fixed rect: the rect was
+        // measured for Menlo 12 and the second line of a two-line phrase
+        // spilled straight out of it the moment the type changed.
+        textPill = SKShapeNode()
         textPill.fillColor = SKColor(white: 0.05, alpha: 0.75)
         textPill.strokeColor = SKColor(white: 1.0, alpha: 0.15)
         textPill.lineWidth = 1.0
@@ -119,6 +125,7 @@ public final class ThresholdNode: SKNode {
         addChild(darknessOverlay)
         addChild(textPill)
         addChild(phraseLabel)
+        Self.fitPill(textPill, to: phraseLabel)
         setIntensity(decision.visualIntensity)
     }
 
@@ -147,4 +154,15 @@ public final class ThresholdNode: SKNode {
         darknessOverlay.strokeColor = SKColor(white: 0.0, alpha: DecisionIntensityStyle.rimAlpha(clamped))
         darknessOverlay.lineWidth = DecisionIntensityStyle.rimWidth(clamped)
     }
+
+    /// Fits the backing pill to the phrase after SpriteKit has laid the label
+    /// out. `calculateAccumulatedFrame()` is only meaningful once the label is
+    /// in the tree with its text set, so this runs after `addChild`.
+    private static func fitPill(_ pill: SKShapeNode, to label: SKLabelNode) {
+        let bounds = label.calculateAccumulatedFrame()
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        let padded = bounds.insetBy(dx: -10, dy: -7)
+        pill.path = CGPath(roundedRect: padded, cornerWidth: 7, cornerHeight: 7, transform: nil)
+    }
+
 }

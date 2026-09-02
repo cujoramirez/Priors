@@ -279,10 +279,22 @@ public final class VillageCoordinator: @unchecked Sendable {
     /// A lantern lost to a decision is gone for the run: the carried count AND
     /// the allowance the well refills to both drop, so the loss survives the
     /// next trip past the well.
+    ///
+    /// The allowance floors at `minimumCarryAllowance` rather than 0. Without
+    /// that floor it reached 0 by about slot 5 of 30 for a player who engaged
+    /// with things — the well then handed back nothing, no house could ever be
+    /// lit again, and SPEC §8's "Task: deliver lanterns to houses before dark"
+    /// was over while the session kept running for another 25 decisions. The
+    /// stake is meant to bite, not to end the game silently: at the floor the
+    /// Runner still carries one lantern per trip, so the cost of a bad run is
+    /// far more walking against the dusk, not a dead village.
     private func loseOneLantern() {
         lanternCount = max(0, lanternCount - 1)
-        carryAllowance = max(0, carryAllowance - 1)
+        carryAllowance = max(Self.minimumCarryAllowance, carryAllowance - 1)
     }
+
+    /// One lantern is always scroungeable at the well. See `loseOneLantern`.
+    static let minimumCarryAllowance = 1
 
     /// Clamped to the carry capacity. The old `lanternCount += 2` assumed the
     /// Runner was holding exactly one, and could otherwise put the HUD above

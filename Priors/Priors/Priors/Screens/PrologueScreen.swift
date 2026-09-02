@@ -124,7 +124,7 @@ public struct PrologueScreen: View {
     private var actionButton: some View {
         if currentPage < Self.pages.count - 1 {
             Button(action: { advancePage() }) {
-                Text("[ Continue ]")
+                Text("Continue")
                     .font(.system(size: 15, weight: .medium, design: .serif))
                     .foregroundColor(.white.opacity(0.85))
                     .frame(maxWidth: .infinity, minHeight: 44)
@@ -147,7 +147,7 @@ public struct PrologueScreen: View {
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(emberAccent)
 
-                    Text("[ Begin the Vigil ]")
+                    Text("Begin the Vigil")
                         .font(.system(size: 15, weight: .medium, design: .serif))
                         .foregroundColor(.white)
                 }
