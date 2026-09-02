@@ -23,12 +23,63 @@ public class PlayerNode: SKSpriteNode {
 
     private let walkActionKey = "player_walk_anim"
 
+    /// The pool of light the Runner carries. SPEC §8 gives the lantern count
+    /// the whole HUD and SPEC §4 makes lanterns the stake behind every price,
+    /// so the light needs to exist in the world and not only as a number in a
+    /// pill. It is also what separates the player from the villagers now that
+    /// every figure is the same hooded silhouette.
+    ///
+    /// Purely decorative: it is drawn under the figure and reads by nothing.
+    /// The dusk vignette darkens the village around it, so the pool is what
+    /// the player actually navigates by as the palette decays.
+    private let lanternGlow: SKSpriteNode = {
+        let glow = SKSpriteNode(texture: PlayerNode.lanternGlowTexture(),
+                                size: CGSize(width: 150, height: 150))
+        glow.zPosition = -1
+        glow.blendMode = .add
+        glow.alpha = 0.55
+        return glow
+    }()
+
     public init() {
         let defaultTexture = VillageAssets.shared.playerIdleTexture(direction: .down)
         super.init(texture: defaultTexture, color: .clear, size: CGSize(width: 32, height: 32))
         self.name = "player"
         self.zPosition = 10
+        addChild(lanternGlow)
+        // A carried flame is never perfectly steady. Slow and shallow, so it
+        // reads as flame rather than as a pulsing UI element.
+        lanternGlow.run(.repeatForever(.sequence([
+            .group([.fadeAlpha(to: 0.46, duration: 1.9), .scale(to: 0.94, duration: 1.9)]),
+            .group([.fadeAlpha(to: 0.58, duration: 2.3), .scale(to: 1.04, duration: 2.3)]),
+        ])))
         setupPhysics()
+    }
+
+    /// Soft warm radial falloff, built once and shared.
+    private static var cachedGlow: SKTexture?
+    private static func lanternGlowTexture() -> SKTexture {
+        if let cached = cachedGlow { return cached }
+        let side: CGFloat = 256
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
+        let image = renderer.image { ctx in
+            let colors = [
+                UIColor(red: 1.00, green: 0.86, blue: 0.58, alpha: 0.85).cgColor,
+                UIColor(red: 0.98, green: 0.70, blue: 0.34, alpha: 0.34).cgColor,
+                UIColor(red: 0.85, green: 0.48, blue: 0.18, alpha: 0.00).cgColor,
+            ] as CFArray
+            guard let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                            colors: colors,
+                                            locations: [0.0, 0.38, 1.0]) else { return }
+            let centre = CGPoint(x: side / 2, y: side / 2)
+            ctx.cgContext.drawRadialGradient(gradient,
+                                             startCenter: centre, startRadius: 0,
+                                             endCenter: centre, endRadius: side / 2,
+                                             options: [])
+        }
+        let tex = SKTexture(image: image)
+        cachedGlow = tex
+        return tex
     }
 
     required init?(coder aDecoder: NSCoder) {

@@ -7,6 +7,7 @@
 //  invariants of BandLadder and LiveDecision across all 3 Acts.
 //
 
+import Foundation
 import Testing
 import PriorsEngine
 @testable import Priors
@@ -29,7 +30,7 @@ struct ProceduralNarrativeTests {
         )
 
         #expect(narrative1 == narrative2)
-        #expect(narrative1.speakerName == narrative2.speakerName)
+        #expect(narrative1.visualVariant == narrative2.visualVariant)
         #expect(narrative1.contextHook == narrative2.contextHook)
         #expect(narrative1.bandPhrase == narrative2.bandPhrase)
     }
@@ -52,8 +53,8 @@ struct ProceduralNarrativeTests {
 
         // Both preserve the exact same BandLadder phrase for the same price
         #expect(narrativeA.bandPhrase == narrativeB.bandPhrase)
-        // But context hooks or speakers should vary across distinct seeds
-        let isDifferent = (narrativeA.speakerName != narrativeB.speakerName) ||
+        // But context hooks or sprite variants should vary across distinct seeds
+        let isDifferent = (narrativeA.visualVariant != narrativeB.visualVariant) ||
                           (narrativeA.contextHook != narrativeB.contextHook)
         #expect(isDifferent)
     }
@@ -72,8 +73,8 @@ struct ProceduralNarrativeTests {
                         sessionSeed: seed * 100
                     )
 
-                    #expect(!narrative.speakerName.isEmpty)
-                    #expect(!narrative.speakerRole.isEmpty)
+                    #expect(narrative.visualVariant >= 0)
+                    #expect(narrative.visualVariant < NarrativeVault.visualVariantCount)
                     #expect(!narrative.contextHook.isEmpty)
                     #expect(!narrative.bandPhrase.isEmpty)
                     #expect(!narrative.actionPrompt.isEmpty)
@@ -120,7 +121,7 @@ struct ProceduralNarrativeTests {
         let decision = LiveDecision(design: design, narrative: narrative)
 
         #expect(decision.narrative != nil)
-        #expect(decision.narrative?.speakerName == narrative.speakerName)
+        #expect(decision.narrative?.visualVariant == narrative.visualVariant)
         #expect(decision.phrase == narrative.bandPhrase)
     }
 
@@ -154,18 +155,31 @@ struct ProceduralNarrativeTests {
         #expect(VillageContainerView.bannerMessage(for: 29) == nil)
     }
 
-    @Test func characterArcKeySlotsAnchorCentralNPCs() async throws {
-        let marenArc = NarrativeVault.npc(for: 4, index: 0)
-        #expect(marenArc.name == "Maren" || marenArc.name == "Sela")
+    /// The inverse of the test this replaces. Sprite variant must depend on the
+    /// seed ALONE — the moment a particular figure is pinned to particular
+    /// slots, it is a recurring character with an arc, which SPEC §8 rules out.
+    @Test func spriteVariantCarriesNoSlotIdentity() async throws {
+        for seed in 0..<40 {
+            let variant = NarrativeVault.visualVariant(for: seed)
+            #expect(variant >= 0)
+            #expect(variant < NarrativeVault.visualVariantCount)
+        }
 
-        let orinArc = NarrativeVault.npc(for: 8, index: 0)
-        #expect(orinArc.name == "Old Orin")
-
-        let kaelArc = NarrativeVault.npc(for: 10, index: 0)
-        #expect(kaelArc.name == "Kael")
-
-        let elowenArc = NarrativeVault.npc(for: 6, index: 0)
-        #expect(elowenArc.name == "Elowen")
+        // Same seed, different slots in different acts: the figure the player
+        // meets must not be anchored to where they are in the session.
+        let templates: [TemplateID] = [.error, .credit, .give]
+        for template in templates {
+            let early = ProceduralDilemmaAssembler.assemble(
+                template: template, price: 0.3, locationID: 7, slot: 4, sessionSeed: 31
+            )
+            let late = ProceduralDilemmaAssembler.assemble(
+                template: template, price: 0.3, locationID: 7, slot: 24, sessionSeed: 31
+            )
+            // Not an equality assertion in either direction: the point is only
+            // that nothing in the vault special-cases a slot into a persona.
+            #expect(early.visualVariant < NarrativeVault.visualVariantCount)
+            #expect(late.visualVariant < NarrativeVault.visualVariantCount)
+        }
     }
 
     @Test func prologueScreenHasThreePages() async throws {
@@ -173,5 +187,48 @@ struct ProceduralNarrativeTests {
         #expect(PrologueScreen.pages[0].contains("The sun set three years ago"))
         #expect(PrologueScreen.pages[1].contains("Tonight is the Long Freeze"))
         #expect(PrologueScreen.pages[2].contains("What you give, and what you keep"))
+    }
+
+    /// SPEC §2.4 ("no personality, no named protagonist") and SPEC §8
+    /// ("Villagers have no faces. Faces invite role-play"). A prior session
+    /// shipped a named cast (Maren, Kael, Orin, Elowen...) into this vault.
+    /// It never rendered, but it was one wiring change away from doing so.
+    /// This pins the contract so it cannot come back silently.
+    @Test func narrativeNeverNamesAVillager() async throws {
+        let allTemplates: [TemplateID] = [.path, .detour, .trade, .error, .credit, .give]
+        // Capitalised words that are legitimately not villager names: sentence
+        // openers are covered by only inspecting non-initial words, and these
+        // are the proper nouns the setting itself is allowed to have.
+        // Places and events, not people. The distinction that matters is
+        // whether a player could answer "who was that?" — a valley and a
+        // named winter give the world a history without giving a villager one.
+        let allowedProperNouns: Set<String> = ["Aethelmere", "Long", "Freeze"]
+
+        for template in allTemplates {
+            for slot in 0..<30 {
+                for seed in 0..<20 {
+                    let narrative = ProceduralDilemmaAssembler.assemble(
+                        template: template,
+                        price: 0.30,
+                        locationID: seed,
+                        slot: slot,
+                        sessionSeed: seed * 977
+                    )
+                    for text in [narrative.contextHook, narrative.actionPrompt] {
+                        let words = text.split(separator: " ").map(String.init)
+                        for word in words.dropFirst() {
+                            let bare = word.trimmingCharacters(
+                                in: CharacterSet.alphanumerics.inverted
+                            )
+                            guard let first = bare.first, first.isUppercase else { continue }
+                            #expect(
+                                allowedProperNouns.contains(bare),
+                                "Villager narrative must stay nameless, found \"\(bare)\" in: \(text)"
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }

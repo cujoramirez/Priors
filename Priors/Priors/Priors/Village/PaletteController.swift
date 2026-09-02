@@ -33,18 +33,25 @@ public struct PaletteStepAnchor: Sendable {
 public final class PaletteController: @unchecked Sendable {
     /// Clearly marked palette anchors table (SPEC §8.1)
     public static let anchors: [PaletteStepAnchor] = [
-        // Step 0: Atmospheric warm dusk (> 0.20 SD) - rich shadows, warm amber dusk tone
-        PaletteStepAnchor(step: 0.0, hex: "#D49B55", r: 0.95, g: 0.82, b: 0.68, saturation: 0.98, brightness: -0.08, contrast: 1.06),
-        // Step 1: Fading warm amber (0.15–0.20 SD) - dusk settling into twilight
-        PaletteStepAnchor(step: 1.0, hex: "#A67B5B", r: 0.84, g: 0.72, b: 0.65, saturation: 0.88, brightness: -0.15, contrast: 1.05),
-        // Step 2: Twilight violet / slate (0.10–0.15 SD) - deep blue-grey twilight
-        PaletteStepAnchor(step: 2.0, hex: "#5C5B77", r: 0.70, g: 0.64, b: 0.78, saturation: 0.72, brightness: -0.22, contrast: 1.03),
-        // Step 3: Cool deep slate (0.06–0.10 SD) - dark dusk blue
-        PaletteStepAnchor(step: 3.0, hex: "#3B4252", r: 0.52, g: 0.56, b: 0.76, saturation: 0.55, brightness: -0.30, contrast: 1.00),
-        // Step 4: Dark nightfall (< 0.06 SD) - moody near-night
-        PaletteStepAnchor(step: 4.0, hex: "#242933", r: 0.36, g: 0.40, b: 0.58, saturation: 0.36, brightness: -0.40, contrast: 0.98),
-        // Step 5: Reading (dark room tone / pure focus)
-        PaletteStepAnchor(step: 5.0, hex: "#1A1D24", r: 0.20, g: 0.22, b: 0.32, saturation: 0.12, brightness: -0.50, contrast: 0.95),
+        // SPEC §8.1 names step 0 "warm amber", step 3 "cool", step 4 "grey-blue".
+        // Step 0 previously read r0.95/g0.82/b0.68 with a 6% vignette, which
+        // over Kenney's (106,190,88) grass and its very saturated dirt is not
+        // amber at all — it renders as flat midday green with a neon-orange
+        // path. `saturation` is what tames that dirt, and until now nothing
+        // read it (see `apply`).
+        //
+        // Step 0: Golden hour (> 0.20 SD) — low warm sun, olive grass, brick path
+        PaletteStepAnchor(step: 0.0, hex: "#D89A4C", r: 0.92, g: 0.70, b: 0.52, saturation: 0.70, brightness: -0.12, contrast: 1.08),
+        // Step 1: Last light (0.15–0.20 SD) — the amber going out of the sky
+        PaletteStepAnchor(step: 1.0, hex: "#A9743E", r: 0.86, g: 0.66, b: 0.50, saturation: 0.62, brightness: -0.17, contrast: 1.07),
+        // Step 2: Twilight (0.10–0.15 SD) — blue hour; warmth only near lanterns
+        PaletteStepAnchor(step: 2.0, hex: "#6B6486", r: 0.70, g: 0.62, b: 0.72, saturation: 0.50, brightness: -0.24, contrast: 1.05),
+        // Step 3: Cool (0.06–0.10 SD) — SPEC §8.1's named "cool"
+        PaletteStepAnchor(step: 3.0, hex: "#454C61", r: 0.50, g: 0.54, b: 0.72, saturation: 0.36, brightness: -0.32, contrast: 1.02),
+        // Step 4: Grey-blue night (< 0.06 SD) — SPEC §8.1's named "grey-blue"
+        PaletteStepAnchor(step: 4.0, hex: "#252A36", r: 0.32, g: 0.36, b: 0.54, saturation: 0.20, brightness: -0.42, contrast: 1.00),
+        // Step 5: Reading — room tone, the village all but gone
+        PaletteStepAnchor(step: 5.0, hex: "#161A21", r: 0.18, g: 0.20, b: 0.32, saturation: 0.08, brightness: -0.52, contrast: 0.97),
     ]
 
     public init() {}
@@ -100,27 +107,54 @@ public final class PaletteController: @unchecked Sendable {
 
     /// Apply color filter parameters to an SKEffectNode for runtime continuous color transform.
     public func apply(to effectNode: SKEffectNode, step: Double) {
-        let p = interpolatedParameters(forStep: step)
-
-        guard let matrixFilter = CIFilter(name: "CIColorMatrix") else { return }
-        matrixFilter.setValue(CIVector(x: p.r, y: 0, z: 0, w: 0), forKey: "inputRVector")
-        matrixFilter.setValue(CIVector(x: 0, y: p.g, z: 0, w: 0), forKey: "inputGVector")
-        matrixFilter.setValue(CIVector(x: 0, y: 0, z: p.b, w: 0), forKey: "inputBVector")
-        matrixFilter.setValue(CIVector(x: p.brightness, y: p.brightness, z: p.brightness, w: 0), forKey: "inputBiasVector")
-
-        effectNode.filter = matrixFilter
+        effectNode.filter = makeFilter(forStep: step)
         effectNode.shouldRasterize = false
         effectNode.shouldEnableEffects = true
     }
 
-    /// Create a CIFilter chain directly for a given step.
+    /// Build the step's colour transform as a single `CIColorMatrix`.
+    ///
+    /// The anchor table has always carried `saturation` and `contrast`, and
+    /// nothing ever read them: the old filter set only the diagonal, so it
+    /// could tint and darken but never desaturate. That is why the dirt path
+    /// rendered as neon orange no matter what the tint was — a warm tint on a
+    /// very saturated source makes it worse, not duskier.
+    ///
+    /// All three fold into one 3x3 plus a bias, so this stays a single filter:
+    ///   saturate  →  out = lum + s * (in - lum),  lum = 0.299R + 0.587G + 0.114B
+    ///   contrast  →  out = (in - 0.5) * c + 0.5
+    ///   tint      →  each output row scaled by its channel multiplier
     public func makeFilter(forStep step: Double) -> CIFilter? {
         let p = interpolatedParameters(forStep: step)
         guard let matrixFilter = CIFilter(name: "CIColorMatrix") else { return nil }
-        matrixFilter.setValue(CIVector(x: p.r, y: 0, z: 0, w: 0), forKey: "inputRVector")
-        matrixFilter.setValue(CIVector(x: 0, y: p.g, z: 0, w: 0), forKey: "inputGVector")
-        matrixFilter.setValue(CIVector(x: 0, y: 0, z: p.b, w: 0), forKey: "inputBVector")
-        matrixFilter.setValue(CIVector(x: p.brightness, y: p.brightness, z: p.brightness, w: 0), forKey: "inputBiasVector")
+
+        let s = p.saturation
+        let c = p.contrast
+        let lr: CGFloat = 0.299, lg: CGFloat = 0.587, lb: CGFloat = 0.114
+        let inv = 1.0 - s
+
+        // Saturation rows, then contrast and the channel tint scale both the
+        // row and the constant term.
+        func row(_ tint: CGFloat, _ diagonal: CGFloat) -> (CGFloat, CGFloat, CGFloat) {
+            (tint * c * (inv * lr + (diagonal == lr ? s : 0)),
+             tint * c * (inv * lg + (diagonal == lg ? s : 0)),
+             tint * c * (inv * lb + (diagonal == lb ? s : 0)))
+        }
+        let rr = row(p.r, lr), gg = row(p.g, lg), bb = row(p.b, lb)
+
+        matrixFilter.setValue(CIVector(x: rr.0, y: rr.1, z: rr.2, w: 0), forKey: "inputRVector")
+        matrixFilter.setValue(CIVector(x: gg.0, y: gg.1, z: gg.2, w: 0), forKey: "inputGVector")
+        matrixFilter.setValue(CIVector(x: bb.0, y: bb.1, z: bb.2, w: 0), forKey: "inputBVector")
+
+        // Contrast pivots around mid-grey, so it contributes its own constant.
+        let pivot = 0.5 - 0.5 * c
+        matrixFilter.setValue(
+            CIVector(x: p.r * pivot + p.brightness,
+                     y: p.g * pivot + p.brightness,
+                     z: p.b * pivot + p.brightness,
+                     w: 0),
+            forKey: "inputBiasVector"
+        )
         return matrixFilter
     }
 }

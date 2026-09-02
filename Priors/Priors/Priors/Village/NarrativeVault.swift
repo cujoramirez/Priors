@@ -2,42 +2,32 @@
 //  NarrativeVault.swift
 //  Priors
 //
-//  Curated narrative vocabulary for "The Lantern Bearer's Vigil".
-//  Provides procedural context hooks, NPC archetypes, and action prompts
-//  structured across a 3-Act narrative progression while keeping psychometric
-//  assessment strictly invariant.
+//  Curated environmental vocabulary for the vigil.
+//  Provides procedural context hooks and action prompts structured across a
+//  3-Act atmospheric progression while keeping psychometric assessment
+//  strictly invariant.
+//
+//  SPEC §2.4 ("no personality, no named protagonist") and SPEC §8 ("Villagers
+//  have no faces. Faces invite role-play") bound what may live here. Hooks
+//  describe PLACES and SITUATIONS, never people with names, histories, or
+//  arcs the player can form a relationship with. A villager is an occasion
+//  for a decision, not a character. Anything added here that a player could
+//  answer "who was that?" about is out of contract.
 //
 
 import PriorsEngine
 
 public enum NarrativeVault: Sendable {
-    public struct NPCProfile: Sendable, Equatable {
-        public let id: String
-        public let name: String
-        public let role: String
-        public let visualVariant: Int
-    }
 
     public struct ContextSnippet: Sendable, Equatable {
         public let storyHook: String
         public let actionPrompt: String
     }
 
-    // MARK: - 12 Modular NPC Archetypes (Including 4 Central Arcs)
-    public static let npcs: [NPCProfile] = [
-        NPCProfile(id: "npc_maren", name: "Maren", role: "The Weaver", visualVariant: 0),
-        NPCProfile(id: "npc_kael", name: "Kael", role: "The Sentry", visualVariant: 1),
-        NPCProfile(id: "npc_orin", name: "Old Orin", role: "The Lamplighter", visualVariant: 2),
-        NPCProfile(id: "npc_elowen", name: "Elowen", role: "The Herbalist", visualVariant: 3),
-        NPCProfile(id: "npc_bram", name: "Bram", role: "The Chandler", visualVariant: 4),
-        NPCProfile(id: "npc_talia", name: "Talia", role: "The Fisher", visualVariant: 0),
-        NPCProfile(id: "npc_corin", name: "Corin", role: "The Miller", visualVariant: 1),
-        NPCProfile(id: "npc_vaelen", name: "Vaelen", role: "The Scribe", visualVariant: 2),
-        NPCProfile(id: "npc_sela", name: "Sela", role: "The Apprentice", visualVariant: 3),
-        NPCProfile(id: "npc_aldous", name: "Aldous", role: "The Elder", visualVariant: 4),
-        NPCProfile(id: "npc_lyra", name: "Lyra", role: "The Scout", visualVariant: 0),
-        NPCProfile(id: "npc_garrick", name: "Garrick", role: "The Blacksmith", visualVariant: 1)
-    ]
+    /// Sprite variants only. Deliberately not a cast list: these index
+    /// interchangeable appearances so the same figure doesn't visibly repeat,
+    /// and carry no identity, name, or continuity between decisions.
+    public static let visualVariantCount = 5
 
     // MARK: - Region Atmospheric Modifiers
     public static let atmosphericModifiers: [String] = [
@@ -125,7 +115,7 @@ public enum NarrativeVault: Sendable {
         ],
         .credit: [
             ContextSnippet(
-                storyHook: "Maren thanks you for clearing the fallen roof beam.",
+                storyHook: "A weaver thanks you for clearing the fallen roof beam.",
                 actionPrompt: "Hold to accept the unearned praise."
             ),
             ContextSnippet(
@@ -151,7 +141,7 @@ public enum NarrativeVault: Sendable {
                 actionPrompt: "Hold to share your remaining fuel."
             ),
             ContextSnippet(
-                storyHook: "Elowen needs a spark for the infirmary brazier.",
+                storyHook: "The infirmary brazier has gone out, and someone is waiting beside it.",
                 actionPrompt: "Hold to rekindle the hospital light."
             ),
             ContextSnippet(
@@ -240,8 +230,8 @@ public enum NarrativeVault: Sendable {
                 actionPrompt: "Hold to accept the undeserved honor."
             ),
             ContextSnippet(
-                storyHook: "Kael the Sentry credits you with securing the eastern palisade.",
-                actionPrompt: "Hold to let Kael believe it was your doing."
+                storyHook: "A sentry credits you with securing the eastern palisade.",
+                actionPrompt: "Hold to let the credit stand."
             ),
             ContextSnippet(
                 storyHook: "A frantic weaver thanks you for saving her freezing apprentice.",
@@ -254,11 +244,11 @@ public enum NarrativeVault: Sendable {
         ],
         .give: [
             ContextSnippet(
-                storyHook: "Sela the apprentice is stranded without heat in the drafty alley.",
+                storyHook: "An apprentice is stranded without heat in the drafty alley.",
                 actionPrompt: "Hold to pour half your oil into her flask."
             ),
             ContextSnippet(
-                storyHook: "Old Orin sits shivering on his unlit porch, his fingers stiff.",
+                storyHook: "Someone sits shivering on an unlit porch, fingers gone stiff.",
                 actionPrompt: "Hold to sacrifice your flame for the veteran."
             ),
             ContextSnippet(
@@ -266,7 +256,7 @@ public enum NarrativeVault: Sendable {
                 actionPrompt: "Hold to kindle their frosted hearth."
             ),
             ContextSnippet(
-                storyHook: "Kael the Sentry holds his freezing hands over an empty brazier.",
+                storyHook: "A sentry holds freezing hands over an empty brazier.",
                 actionPrompt: "Hold to give your lantern fuel to the watch."
             )
         ]
@@ -365,47 +355,31 @@ public enum NarrativeVault: Sendable {
         ],
         .give: [
             ContextSnippet(
-                storyHook: "Elowen the herbalist is barricaded in the sickhouse with frozen children, pleading for your very last lantern.",
+                storyHook: "The sickhouse is barricaded against the cold, and the plea through the door is for your very last lantern.",
                 actionPrompt: "Hold to give your last lantern and walk in absolute darkness."
             ),
             ContextSnippet(
-                storyHook: "Old Orin can no longer stand in the howling dark, his breath turning to ice.",
+                storyHook: "A figure can no longer stand in the howling dark, breath turning to ice.",
                 actionPrompt: "Hold to pour your final drops of oil into his lamp."
             ),
             ContextSnippet(
-                storyHook: "Sela is collapsing in the snowdrift outside the sickhouse doors.",
+                storyHook: "Someone is collapsing in the snowdrift outside the sickhouse doors.",
                 actionPrompt: "Hold to sacrifice your heat to revive the apprentice."
             ),
             ContextSnippet(
-                storyHook: "Kael stands alone at the breached outer gate without a single spark.",
+                storyHook: "A lone watch stands at the breached outer gate without a single spark.",
                 actionPrompt: "Hold to give your light so the sentinel can hold the wall."
             )
         ]
     ]
 
-    // MARK: - Character Arc NPC Resolution
-    public static func npc(for slot: Int, index: Int) -> NPCProfile {
-        // Highlight central arc characters at pivotal narrative slots
-        switch slot {
-        case 4, 12, 22:
-            // Maren / Sela Arc
-            return (slot == 22 || (index % 2 == 1)) ? npcs[8] : npcs[0] // Sela or Maren
-        case 8, 17, 27:
-            // Old Orin Arc
-            return npcs[2] // Old Orin
-        case 10, 18, 25:
-            // Kael the Sentry Arc
-            return npcs[1] // Kael
-        case 6, 14, 24:
-            // Elowen the Herbalist Arc
-            return npcs[3] // Elowen
-        default:
-            return npcs[abs(index) % npcs.count]
-        }
-    }
-
-    public static func npc(for index: Int) -> NPCProfile {
-        npc(for: 0, index: index)
+    // MARK: - Sprite Variant Resolution
+    /// Which interchangeable villager sprite to show. Deliberately a pure
+    /// function of the seed and nothing else: no slot special-casing, because
+    /// a figure that reappears at pivotal moments is a character arc, and
+    /// SPEC §8 rules those out.
+    public static func visualVariant(for index: Int) -> Int {
+        abs(index) % visualVariantCount
     }
 
     // MARK: - Act-Aware Context Snippet Resolution

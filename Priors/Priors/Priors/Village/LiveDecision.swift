@@ -9,6 +9,8 @@
 //
 
 import CoreGraphics
+import SpriteKit
+import UIKit
 import PriorsEngine
 
 public struct LiveDecision: Sendable {
@@ -149,6 +151,44 @@ public enum DecisionIntensityStyle {
     public static func rimWidth(_ intensity: Double) -> CGFloat {
         1.0 + clamp(intensity) * 4.0
     }
+
+    /// Soft radial falloff used as the pool's `fillTexture`.
+    ///
+    /// The pool was a flat shape with a hard edge on every side, which on
+    /// grass read as a hole cut in the ground rather than as gathering
+    /// shadow — the "shadow blob". Only the FILL is softened here: the rim
+    /// above stays crisp deliberately, because a hard edge is what makes two
+    /// adjacent bands comparable (SPEC §8.2), and blurring that would trade
+    /// away the channel to fix the look.
+    ///
+    /// Multiplied by the node's `fillColor`, so the shape keeps carrying its
+    /// own alpha and every intensity function above still applies unchanged.
+    public static func poolFillTexture() -> SKTexture {
+        if let cached = cachedPoolFill { return cached }
+        let side: CGFloat = 256
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
+        let image = renderer.image { ctx in
+            let colors = [
+                UIColor(white: 1.0, alpha: 1.00).cgColor,
+                UIColor(white: 1.0, alpha: 0.92).cgColor,
+                UIColor(white: 1.0, alpha: 0.55).cgColor,
+                UIColor(white: 1.0, alpha: 0.00).cgColor,
+            ] as CFArray
+            guard let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                            colors: colors,
+                                            locations: [0.0, 0.55, 0.82, 1.0]) else { return }
+            let centre = CGPoint(x: side / 2, y: side / 2)
+            ctx.cgContext.drawRadialGradient(gradient,
+                                             startCenter: centre, startRadius: 0,
+                                             endCenter: centre, endRadius: side / 2,
+                                             options: [])
+        }
+        let tex = SKTexture(image: image)
+        cachedPoolFill = tex
+        return tex
+    }
+
+    nonisolated(unsafe) private static var cachedPoolFill: SKTexture?
 
     /// How far the villager's own sprite is pushed toward black. The figure
     /// stands deeper in the pool as the price rises. Never reaches full

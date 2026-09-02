@@ -72,18 +72,24 @@ public struct VirtualControlsView: View {
         }
     }
 
+    /// Apple HIG (Games): keep the heads-up display to what the player needs
+    /// mid-action, and prefer a glanceable symbol and value over a sentence.
+    /// SPEC §8 allows exactly one HUD element, so this is it. The written
+    /// label moves to the accessibility string, where it belongs, rather than
+    /// being dropped.
     private var lanternHUD: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 7) {
             Image(systemName: "flame.fill")
                 .foregroundColor(Color(red: 232 / 255.0, green: 141 / 255.0, blue: 56 / 255.0))
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
                 .shadow(color: Color(red: 232 / 255.0, green: 141 / 255.0, blue: 56 / 255.0).opacity(0.8), radius: 4)
 
-            Text("Lanterns: \(lanternCount)")
-                .font(.system(size: 14, weight: .medium, design: .monospaced))
+            Text("\(lanternCount)")
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .monospacedDigit()
                 .foregroundColor(.white)
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 13)
         .padding(.vertical, 7)
         .background(
             Capsule()
@@ -94,6 +100,9 @@ public struct VirtualControlsView: View {
                 )
         )
         .shadow(color: Color.black.opacity(0.4), radius: 8, x: 0, y: 3)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Lanterns")
+        .accessibilityValue("\(lanternCount)")
     }
 
     private var thumbstick: some View {
@@ -153,9 +162,11 @@ public struct VirtualControlsView: View {
         ZStack {
             // Outer Static Border
             Circle()
-                .strokeBorder(Color.white.opacity(canInteract ? 0.85 : 0.2), lineWidth: 2)
-                .background(Circle().fill(Color.black.opacity(canInteract ? 0.5 : 0.25)))
-                .frame(width: 68, height: 68)
+                .strokeBorder(Color.white.opacity(canInteract ? 0.9 : 0.32), lineWidth: 2)
+                .background(Circle().fill(Color.black.opacity(canInteract ? 0.55 : 0.35)))
+                // HIG minimum touch target is 44pt; a thumb reaching across a
+                // landscape phone wants more than the minimum.
+                .frame(width: 72, height: 72)
 
             // Radial Hold Progress Ring (0.6s fill)
             if canInteract && holdProgress > 0.0 {
@@ -166,17 +177,30 @@ public struct VirtualControlsView: View {
                         style: StrokeStyle(lineWidth: 3.5, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
-                    .frame(width: 72, height: 72)
+                    .frame(width: 76, height: 76)
                     .shadow(color: Color(red: 232 / 255.0, green: 141 / 255.0, blue: 56 / 255.0).opacity(0.8), radius: 4)
             }
 
-            Text("Interact")
-                .font(.system(size: 14, weight: .regular))
-                .foregroundColor(.white.opacity(canInteract ? 1.0 : 0.3))
+            // HIG: a control's label says what it does. "Interact" named the
+            // category, not the action, and the action here is a hold, not a
+            // tap — SPEC §8.3 resolves a social decision on 0.6s of hold.
+            VStack(spacing: 3) {
+                Image(systemName: "hand.tap.fill")
+                    .font(.system(size: 19, weight: .medium))
+                Text("Hold")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundColor(.white.opacity(canInteract ? 1.0 : 0.45))
         }
         .scaleEffect(isPressed ? 0.94 : (canInteract && pulse ? 1.05 : 1.0))
         .contentShape(Circle())
-        .opacity(canInteract ? 1.0 : 0.6)
+        // Kept legible rather than nearly invisible when inert: HIG asks that
+        // an unavailable control still read as a control, so the player can
+        // learn it exists before the moment they need it.
+        .opacity(canInteract ? 1.0 : 0.75)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Hold to respond")
+        .accessibilityHint(canInteract ? "Someone is waiting" : "Nothing to respond to right now")
         .animation(.easeInOut(duration: 0.25), value: canInteract)
         .gesture(
             DragGesture(minimumDistance: 0)

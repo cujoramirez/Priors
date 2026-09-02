@@ -11,21 +11,21 @@
 import PriorsEngine
 
 public struct DilemmaNarrative: Sendable, Equatable {
-    public let speakerName: String
-    public let speakerRole: String
+    /// Which interchangeable villager sprite to show. Not an identity —
+    /// SPEC §8 keeps villagers faceless, so this carries appearance variety
+    /// and nothing a player could recognise across decisions.
+    public let visualVariant: Int
     public let contextHook: String
     public let bandPhrase: String
     public let actionPrompt: String
 
     public init(
-        speakerName: String,
-        speakerRole: String,
+        visualVariant: Int,
         contextHook: String,
         bandPhrase: String,
         actionPrompt: String
     ) {
-        self.speakerName = speakerName
-        self.speakerRole = speakerRole
+        self.visualVariant = visualVariant
         self.contextHook = contextHook
         self.bandPhrase = bandPhrase
         self.actionPrompt = actionPrompt
@@ -55,12 +55,10 @@ public enum ProceduralDilemmaAssembler: Sendable {
 
         // Derive deterministic index hashes from sessionSeed + locationID + slot
         let combinedHash = abs(sessionSeed ^ (locationID * 31) ^ (slot * 17) ^ template.rawValue.hashValue)
-        let npc = NarrativeVault.npc(for: slot, index: combinedHash)
         let snippet = NarrativeVault.context(for: template, slot: slot, index: combinedHash)
 
         return DilemmaNarrative(
-            speakerName: npc.name,
-            speakerRole: npc.role,
+            visualVariant: NarrativeVault.visualVariant(for: combinedHash),
             contextHook: snippet.storyHook,
             bandPhrase: corePhrase,
             actionPrompt: snippet.actionPrompt

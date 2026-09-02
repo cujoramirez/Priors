@@ -85,7 +85,12 @@ public struct VillageContainerView: View {
                                         .stroke(Color.white.opacity(0.15), lineWidth: 1)
                                 )
                         )
-                        .padding(.top, 16)
+                        // Clears the lantern HUD, which sits top-left. At
+                        // `.top, 16` the centred banner and the HUD pill
+                        // occupied the same strip and the banner's first words
+                        // rendered underneath it.
+                        .frame(maxWidth: 620)
+                        .padding(.top, 54)
                         .padding(.horizontal, 32)
                         .opacity(bannerOpacity)
                         .shadow(color: Color.black.opacity(0.45), radius: 8, x: 0, y: 4)
@@ -112,6 +117,7 @@ public struct VillageContainerView: View {
         .onAppear {
             movementSampler.start()
             AudioManager.shared.startVillageAudio()
+            villageScene.setCarryAllowance(coordinator.carryAllowance)
             villageScene.setLanternsCarried(coordinator.lanternCount)
             coordinator.onSessionComplete = { @MainActor record in
                 onComplete(record)

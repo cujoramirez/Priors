@@ -73,12 +73,26 @@ public class VillageScene: SKScene {
     public var onLanternDelivered: ((Int) -> Void)?
     public var onLanternsRefilled: ((Int) -> Void)?
     public private(set) var lanternsCarried: Int = 3
-    private static let carryCapacity = 3
+    /// SPEC §4 — how many lanterns the well is willing to hand back. Starts at
+    /// capacity and is lowered permanently by decision-driven losses, so a
+    /// lantern gambled away on a PATH or given away on a GIVE stays gone for
+    /// the run. Refilling to a flat `carryCapacity` refunded every loss at the
+    /// next well visit, which left the template prices with no textural stake
+    /// behind them at all.
+    public private(set) var carryAllowance: Int = 3
+    public static let carryCapacity = 3
     private static let deliveryRadius: CGFloat = 40
     private static let refillRadius: CGFloat = 56
 
     public func setLanternsCarried(_ count: Int) {
         self.lanternsCarried = max(0, count)
+    }
+
+    /// The ceiling the well refills to. Clamped to `carryCapacity` so a TRADE
+    /// win cannot raise the run's standing allowance above what the Runner can
+    /// physically carry.
+    public func setCarryAllowance(_ allowance: Int) {
+        self.carryAllowance = min(Self.carryCapacity, max(0, allowance))
     }
 
     // Zone Exploration Metrics (SCHEMA §1, §7.1)
@@ -236,14 +250,17 @@ public class VillageScene: SKScene {
 
     /// SPEC §8.1 — palette and light decay on posterior confidence, not on time.
     ///
-    /// The vignette used to run 0.70 → 0.95. That put a 70%-opacity darkness
-    /// over the village on the very first frame, so a game SPEC §1 calls
-    /// "cheerful" opened at night, and the whole five-step schedule then spanned
-    /// 25% of alpha — a change small enough that the decay, which is the only
-    /// signal the model is closing in, was invisible.
+    /// The vignette first ran 0.70 → 0.95 (opened at night, and the whole
+    /// five-step schedule spanned 25% of alpha — a change too small to feel).
+    /// It was then flattened to 0.06 → 0.80, which overcorrected: at 6% there
+    /// is no lantern pool and no framing at all, so the village read as a
+    /// brightly-lit map in full daylight and SPEC §8.1's "warm amber" never
+    /// appeared on screen.
     ///
-    /// It now opens nearly clear and ends genuinely dark, so the arc is the
-    /// thing the player feels.
+    /// It now opens at a golden-hour 0.42 — enough that the lantern carves a
+    /// visible pool out of the light — and ends at 0.95, near-total night.
+    /// Still monotonic, still never fully opaque: the player must always be
+    /// able to see the path.
     public func updateDusk(forMeanPosteriorSD sd: Double) {
         guard let effectNode = worldEffectNode else { return }
         let step = paletteController.step(forMeanPosteriorSD: sd)
@@ -255,7 +272,7 @@ public class VillageScene: SKScene {
     /// Monotonic, and never fully opaque — the player must still see the path.
     static func vignetteAlpha(forStep step: Double) -> CGFloat {
         let clamped = min(max(step, 0), 5)
-        return CGFloat(0.06 + (clamped / 5.0) * 0.74)
+        return CGFloat(0.42 + (clamped / 5.0) * 0.53)
     }
 
     public override func update(_ currentTime: TimeInterval) {
@@ -276,7 +293,7 @@ public class VillageScene: SKScene {
         }
 
         // Smooth Camera Follow with clamping
-        updateCameraPosition()
+        updateCameraPosition(currentTime: currentTime)
 
         // Armed live decision: zone dwell, crossing / hold resolution
         updateArmedDecision(currentTime: currentTime)
@@ -303,10 +320,13 @@ public class VillageScene: SKScene {
             onLanternDelivered?(lanternsCarried)
         }
 
-        if lanternsCarried < Self.carryCapacity, !undeliveredDoors.isEmpty {
+        // Top up to the standing allowance, not to capacity — see
+        // `carryAllowance`. When losses have driven the allowance to zero the
+        // well has nothing to give, and the run ends the way it earned.
+        if lanternsCarried < carryAllowance, !undeliveredDoors.isEmpty {
             let well = map.playerSpawnPosition
             if hypot(well.x - player.position.x, well.y - player.position.y) < Self.refillRadius {
-                lanternsCarried = Self.carryCapacity
+                lanternsCarried = carryAllowance
                 onLanternsRefilled?(lanternsCarried)
             }
         }
@@ -331,7 +351,16 @@ public class VillageScene: SKScene {
         ]))
     }
 
-    private func updateCameraPosition() {
+    /// Seconds since the previous frame, clamped. Used only for presentation
+    /// smoothing — never for anything SCHEMA §1 records, which all read
+    /// `currentTime` directly.
+    private var lastFrameTime: TimeInterval?
+    /// Camera smoothing rate, per second. Chosen so that at 60fps a frame
+    /// moves the camera the same 12% it did when this was a flat per-frame
+    /// lerp: 1 - exp(-7.67/60) = 0.12.
+    private static let cameraFollowRate: Double = 7.67
+
+    private func updateCameraPosition(currentTime: TimeInterval) {
         guard let player = playerNode, let cam = sceneCamera, let map = mapData else { return }
 
         let halfWidth = self.size.width / 2.0
@@ -345,8 +374,24 @@ public class VillageScene: SKScene {
         let targetX = min(max(player.position.x, minX), maxX)
         let targetY = min(max(player.position.y, minY), maxY)
 
-        // Smooth camera lerp
-        let lerpFactor: CGFloat = 0.12
+        // Smooth camera lerp, frame-rate independent. A flat per-frame factor
+        // made the camera converge twice as fast on a 120Hz ProMotion device
+        // as on a 60Hz one — the same walk framed differently depending on the
+        // hardware. Exponential smoothing against real elapsed time instead.
+        // dt is clamped so a stalled frame (a breakpoint, a backgrounded app,
+        // a test stepping `update` by whole seconds) cannot snap the camera.
+        guard let previous = lastFrameTime else {
+            // First frame. An SKCameraNode starts at the world origin — the
+            // bottom-left corner of the map — so easing from there meant the
+            // village opened on an unrequested swoop across the rooftops
+            // before settling on the player. Start framed correctly instead.
+            lastFrameTime = currentTime
+            cam.position = CGPoint(x: targetX, y: targetY)
+            return
+        }
+        let dt = min(max(currentTime - previous, 0), 0.05)
+        lastFrameTime = currentTime
+        let lerpFactor = CGFloat(1.0 - exp(-Self.cameraFollowRate * dt))
         cam.position.x += (targetX - cam.position.x) * lerpFactor
         cam.position.y += (targetY - cam.position.y) * lerpFactor
     }

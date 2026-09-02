@@ -792,14 +792,19 @@ struct PriorsTests {
 
     /// SPEC §8.1 — the decay has to be visible, and it only goes one way.
     ///
-    /// The vignette previously ran 0.70 -> 0.95: the village opened at 70%
-    /// darkness and the entire five-step schedule moved alpha by 0.25.
+    /// The vignette first ran 0.70 -> 0.95 (opened at night, whole schedule
+    /// moved alpha by 0.25). It was then flattened to 0.06 -> 0.80, which
+    /// overcorrected: at 6% there is no lantern pool and no framing, so the
+    /// village rendered as a brightly-lit map in full daylight and SPEC §8.1's
+    /// "warm amber" step 0 never actually appeared on screen. It now opens at
+    /// a golden-hour 0.28 and ends at near-total night.
     @MainActor
-    @Test func duskVignetteOpensClearAndDarkensMonotonically() async throws {
+    @Test func duskVignetteOpensAtGoldenHourAndDarkensMonotonically() async throws {
         let start = VillageScene.vignetteAlpha(forStep: 0)
         let end = VillageScene.vignetteAlpha(forStep: 5)
-        #expect(start < 0.15, "the village opens at \(start) alpha; SPEC §1 calls it cheerful")
-        #expect(end > 0.70, "fully decayed vignette is only \(end)")
+        #expect(start > 0.15, "at \(start) alpha there is no lantern pool; SPEC §8.1 step 0 is warm amber, not daylight")
+        #expect(start < 0.55, "the village opens at \(start) alpha; step 0 is dusk, not night")
+        #expect(end > 0.90, "fully decayed vignette is only \(end)")
         #expect(end < 1.0, "the player must still be able to see the path")
         #expect(end - start > 0.5, "the decay spans only \(end - start) of alpha")
 

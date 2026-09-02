@@ -23,6 +23,11 @@ public final class VillageCoordinator: @unchecked Sendable {
     public var selectionState = SelectionState()
     public var currentSlot: Int = 0
     public var lanternCount: Int = 3
+    /// SPEC §4 — the run's standing lantern allowance. Decision-driven losses
+    /// lower it permanently; the well tops the Runner up to this, not to the
+    /// carry capacity. Without it, every GIVE/PATH/TRADE loss was refunded at
+    /// the next well visit and the template prices carried no real stake.
+    public var carryAllowance: Int = VillageScene.carryCapacity
     /// SPEC §8.3 — the single decision currently live in the world, or nil
     /// between slots. Replaces the old `activePrompt`/`isPresentingScenario`
     /// pair: there is no modal to present, so presentation state collapses
@@ -135,6 +140,7 @@ public final class VillageCoordinator: @unchecked Sendable {
         let decision = LiveDecision(design: design, capturedFrom: posterior, narrative: narrative)
 
         liveDecision = decision
+        scene.setCarryAllowance(carryAllowance)
         scene.setLanternsCarried(lanternCount)
         scene.armDecision(decision, at: nearest)
 
@@ -223,6 +229,7 @@ public final class VillageCoordinator: @unchecked Sendable {
 
         // Update Lantern Inventory
         updateLanternCount(for: design.template, engaged: engaged, price: design.price)
+        scene.setCarryAllowance(carryAllowance)
         scene.setLanternsCarried(lanternCount)
 
         // Update Dusk Effect on Scene
@@ -246,12 +253,12 @@ public final class VillageCoordinator: @unchecked Sendable {
     private func updateLanternCount(for template: TemplateID, engaged: Bool, price: Double) {
         switch template {
         case .give:
-            if engaged { lanternCount = max(0, lanternCount - 1) }
+            if engaged { loseOneLantern() }
         case .path:
             if engaged {
                 // If path gamble lost
                 if Double.random(in: 0...1) < price {
-                    lanternCount = max(0, lanternCount - 1)
+                    loseOneLantern()
                 }
             }
         case .trade:
@@ -259,14 +266,42 @@ public final class VillageCoordinator: @unchecked Sendable {
                 // SPEC §4.2: win probability is 1 - price
                 let pWin = 1.0 - price
                 if Double.random(in: 0...1) < pWin {
-                    lanternCount += 2 // Net +2 (total 3)
+                    gainLanterns(2)
                 } else {
-                    lanternCount = max(0, lanternCount - 1)
+                    loseOneLantern()
                 }
             }
         case .detour, .error, .credit:
             break
         }
+    }
+
+    /// A lantern lost to a decision is gone for the run: the carried count AND
+    /// the allowance the well refills to both drop, so the loss survives the
+    /// next trip past the well.
+    ///
+    /// The allowance floors at `minimumCarryAllowance` rather than 0. Without
+    /// that floor it reached 0 by about slot 5 of 30 for a player who engaged
+    /// with things — the well then handed back nothing, no house could ever be
+    /// lit again, and SPEC §8's "Task: deliver lanterns to houses before dark"
+    /// was over while the session kept running for another 25 decisions. The
+    /// stake is meant to bite, not to end the game silently: at the floor the
+    /// Runner still carries one lantern per trip, so the cost of a bad run is
+    /// far more walking against the dusk, not a dead village.
+    private func loseOneLantern() {
+        lanternCount = max(0, lanternCount - 1)
+        carryAllowance = max(Self.minimumCarryAllowance, carryAllowance - 1)
+    }
+
+    /// One lantern is always scroungeable at the well. See `loseOneLantern`.
+    static let minimumCarryAllowance = 1
+
+    /// Clamped to the carry capacity. The old `lanternCount += 2` assumed the
+    /// Runner was holding exactly one, and could otherwise put the HUD above
+    /// the number of lanterns that physically fit.
+    private func gainLanterns(_ count: Int) {
+        carryAllowance = min(VillageScene.carryCapacity, carryAllowance + count)
+        lanternCount = min(VillageScene.carryCapacity, lanternCount + count)
     }
 
     @MainActor
