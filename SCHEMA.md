@@ -1,6 +1,6 @@
 # Priors — SCHEMA
 
-Version 1.1. Both `priors-research/` and `PriorsEngine/` must produce and
+Version 1.2. Both `priors-research/` and `PriorsEngine/` must produce and
 consume exactly these shapes. Change here first, then in code.
 
 ---
@@ -144,7 +144,8 @@ SyntheticAgent {
   theta_e: Double     ~ Beta(2, 3) scaled to [0.05, 0.85]
   theta_i: Double     ~ Beta(2, 4) scaled to [0.02, 0.70]
   beta: Double        ~ LogNormal(log(8), 0.5), clipped [2, 30]
-  rt_base_ms: Int     ~ LogNormal(log(2000), 0.4)
+  rt_base_ms: Int     ~ LogNormal(log(1500), 0.4)   # v1.2 — SPEC §8.3 re-fit,
+                                                     # see FINDINGS.md
   rt_near_line_mult   = 1 + 2.5 · exp(−((p − θ)/0.08)²)
 }
 ```

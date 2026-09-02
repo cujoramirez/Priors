@@ -638,3 +638,170 @@ Open questions for whoever continues this:
     trait-matched to the 30 pre-built locations, physics-contact resolution
     instead of a button) has not been started. Next step is `writing-plans`
     for that plus §8.2's band-phrase rendering and the `rt_base` re-fit.
+
+## Game layer — in-world decisions replace the modal (SPEC §8.2/§8.3)
+Status: done — 13-task plan executed, every task reviewed, four requiring fix rounds
+Branch: `game-layer-in-world-decisions` (21 commits, `28fafe3..0e25b5b`)
+Plan: `docs/superpowers/plans/2026-09-02-game-layer-in-world-decisions.md`
+
+What was verified (all three suites, re-run at HEAD, not assumed):
+  - `PriorsEngine` — **78 passed, 0 failures**.
+  - `priors-research` — **165 passed**.
+  - `Priors` app — **55 passed, 0 failures, 0 skipped** (up from the 33+9 baseline;
+    the additions are BandLadderTests 5, VillageMapBuilderTests 3,
+    LiveDecisionResolutionTests 5, plus the rewritten coordinator-loop test).
+
+**What shipped.** The modal is gone. `ScenarioDialogView` — which printed
+`"Risk of losing a lantern: 33%"` over a stopped world — is deleted. In its
+place: spatial templates (`PATH`/`DETOUR`/`TRADE`) are thresholds the player
+walks across, resolved by crossing an inner commit radius before leaving the
+zone; social templates (`ERROR`/`CREDIT`/`GIVE`) are a villager who walks up,
+stops, and waits, resolved by holding Interact for 0.6s or by walking away.
+Price reaches the player only as one of seven authored phrases per template
+(`BandLadder`) plus a scalar darkness intensity. Exactly one decision is live
+at a time, so ADO stays fully sequential and adaptive.
+
+`approach_frac`, `backtracks` and `idle_ms` are now **observed** from real
+per-frame zone dwell rather than the modelled correlates SCHEMA §7.1 flagged —
+on both branches, after review caught that the social branch had been left
+with hardcoded constants. `rt_ms` is now hesitation (zone entry to resolution)
+rather than button-click latency, so the `rt_base` prior was re-centred
+2000ms → 1500ms across SCHEMA.md (v1.2), Python, regenerated goldens, and
+Swift, in that order; `RT_BASE_PRIOR_SD` stayed at 0.8 throughout, per
+FINDINGS.md. `VillageCoordinator` now reads `BehaviouralPosterior`.
+
+**Four real bugs surfaced that the plan did not anticipate.**
+
+1. **A pre-existing, silent data-integrity bug.** The old `handleChoice`
+   re-called `ADOSelector.selectDesign` to recover the design it was logging.
+   Because SPEC §5 applies ±0.02 random price jitter, that second call
+   returned a *different price* with probability ~1. The wrong price flowed
+   into the logged `DecisionRecord.price`, the posterior update,
+   `predictedEngage`, the lantern outcome, and `selectionState.commit`'s
+   `repeatSourcePrice` — poisoning the §4 test-retest slot. Every session
+   recorded so far has this. Now fixed by reading the armed `LiveDecision`'s
+   own design, and pinned by an assertion across all 30 slots.
+2. **A shadow-scoring regression introduced by this work.** The shadow now
+   spawns when a decision is *armed*, but its fixed 10s timer scored
+   `decisions.last`. Since the player must walk to the location, arm→resolve
+   routinely exceeds 10s, so all four appearances would have recorded the
+   *previous* decision's outcome into SCHEMA §3's `shadow_correct`. Fixed by
+   parking the prediction keyed to its slot and scoring it in
+   `resolveLiveDecision`.
+3. **Main-branch contamination.** A Task 3 implementer committed its Swift
+   change to `main` as well as the worktree. Because `main` lacks the
+   regenerated golden fixture, it sat at **71 of 78 engine tests failing**.
+   Found only because the user reported the app misbehaving. Reverted on
+   `main` (`274e0c3`), re-verified 78/78, pushed.
+4. **A Swift closure-type bug in the plan itself** — `((engaged:, metrics:) ->
+   Void)?` parses as a two-parameter closure, not the single-tuple-parameter
+   one intended, and would not compile. Needed double parens.
+
+**Assumptions made, and what they cost if wrong.** The 1500ms `rt_base`
+centre is a *stated design assumption* derived from zone geometry (36pt radius
+at 110pt/s) plus perceive-and-decide time — not measured data, exactly like
+SCHEMA §7.2's timing assumption. It is safe to be approximately wrong about
+because the prior stays weak at sd 0.8; `experiments/rt_base_prior.py` shows
+the channel is flat across population medians from 1200ms to 5000ms.
+
+Price-banding was measured before it was built, not after
+(`experiments/perceived_price.py`, full ADO + `BehaviouralPosterior`
+pipeline). The result contradicted the draft's own remedy: **band count barely
+matters** — 7, 9, 12 and 15 bands land within 0.002 MAE of each other. Cost is
+set by how precisely a band's *visual intensity* reads, not by how finely the
+price axis is sliced. So seven bands ships, and the real requirement is visual
+distinctness. Full table in FINDINGS.md.
+
+**Performance.** Switching to `BehaviouralPosterior` made the 30-decision test
+~60× slower, which looked alarming because `resolveLiveDecision` runs
+synchronously on SpriteKit's render loop. Measured rather than argued: that is
+a **Debug artifact**. Release is **~9.6 ms/decision** (Debug ~730 ms), against
+a 16.7 ms frame budget — at worst one late frame at each decision boundary.
+Dominant cost is `normalise()` + `refreshMarginals()`' `exp()` passes over the
+2M-cell grid, not the likelihood math and not the EIG.
+
+Open questions / not done:
+  - **The social path is unverified end-to-end.** Hold→engage and leave→decline
+    have no automated test (`WaitingVillagerNode.hasArrived` is set from an
+    `SKAction` completion needing the render loop, and is `private(set)`), and
+    the Task 11 screenshot happened to arm a *spatial* decision, so it was not
+    seen rendered either. This is the single highest-value thing for a human
+    playtest. I had committed to covering it visually and did not.
+  - **The threshold does not read as a threshold.** In the rendered village the
+    darkness overlay looks like a mud patch. That is not merely cosmetic:
+    §8.2's own experiment makes band distinctness the load-bearing variable, so
+    the deferred bespoke art is now evidenced as necessary, not optional.
+  - Neither branch has a timeout: a decision stalls if the player never
+    approaches it. Accepted for this pass; needs design, not a patch.
+  - Villagers (GameplayKit), art/animation/lighting, and audio remain
+    unratified draft in `SPEC-GAME.md` §5–§7, deferred by agreement.
+  - Deferred minors are listed in the plan's SDD ledger, including an
+    overclaimed comment in `LiveDecisionResolutionTests` (it does not actually
+    pin `setInteractPressed`'s idempotence, though its arrival-gate half is
+    valid).
+
+## Final review of the game-layer branch — closed
+Status: done — branch ready for human integration decision
+Files touched: this entry only; the fix wave itself is commit `8a529a7`.
+
+The whole-branch final review (see the entry above) found a Critical finding
+the per-task reviews could not see: `rt_ms` was measured from when a decision
+was *armed* — the instant the previous one resolved — not from when the
+player actually entered the decision's zone, so it silently contained the
+player's cross-village walk instead of their hesitation. This invalidated the
+premise of the whole `rt_base` re-fit and meant the `BehaviouralPosterior`
+switch (Task 12) was reading the wrong signal without failing loudly, because
+0.0 sits on the model's own "this player's hesitation says nothing" grid
+point. Fixed, along with five Important findings, in one fix wave (commit
+`8a529a7`), then independently re-verified — a second reviewer read the fix
+diff in chunks after two earlier attempts stalled on it whole, and confirmed
+all 13 findings genuinely addressed with file:line evidence, not just
+attempted.
+
+**One finding survives, by decision, not by oversight — a real, quantified
+bias, not a merge blocker.** The social decision's hesitation clock opens at
+the villager's 80pt "decline" radius; the spatial decision's opens at the
+threshold's 36pt zone. At 110pt/s that is a systematic **+300 to +800ms** on
+every social decision's `rt_ms`, worth 0.3–3.6 posterior SDs depending on how
+much genuine hesitation is present. Because `BehaviouralPosterior` shares one
+`rt_base` nuisance axis across both traits, and the social templates
+(`ERROR`/`CREDIT`/`GIVE`) are θ_i's *only* source, this doesn't just add
+noise — it can make the RT channel self-confirming for θ_i (ADO prices near
+the current θ_i estimate, so the near-line term absorbs the offset) and
+actively suppress the `peak = 0` "no signal" escape hatch that
+`BehaviouralPosterior.swift`'s own design exists to keep representable.
+
+**Why this ships anyway:** SPEC §8.3 specifies the clock for thresholds, not
+the social dwell gate, so nothing in the contract is broken. It is strictly
+better than the pre-fix-wave state, which the correct comparison bar — both
+branches were arm-to-resolve before, carrying far larger and more variable
+travel-distance bias. It is not a safe one-line fix: gating the clock on the
+40pt approach radius instead of the 80pt decline radius would break the
+decline path, which requires having *entered* the zone at all
+(`zoneEntryTime != nil`) — a player who reaches 80pt but never 40pt and
+leaves would never resolve. The correct fix is a **per-family `rt_base`** (or
+an explicit per-family offset) in `rt_posterior.py` / `BehaviouralPosterior.swift`
+plus regenerated goldens — a PriorsEngine change, deliberately kept out of
+this branch. `rt_ms` and `template` are both logged per decision, so the
+offset is estimable and subtractable from data already collected.
+
+**This is a named blocker before any real-tester data collection**, not
+before this branch's merge. Whoever picks up PriorsEngine work next should
+read this before trusting θ_i estimates from any session run on this branch
+without the per-family fix.
+
+Verified: PriorsEngine 78/78; a scoped `-only-testing:PriorsTests` run —
+**55 tests in 4 suites, all passed** — `.xcresult` at
+`Test-Priors-2026.09.02_17-09-14` in this worktree's DerivedData
+(`Priors-avnngqunzvacatcpbwbbutxzjwmg`). `priors-research` unaffected by this
+wave (confirmed via diff, not re-run).
+
+Separately, logged for whoever next opens this worktree: `stash@{0}` holds an
+unrelated, out-of-process session's narrative/UI overhaul (named villager
+characters with individual arcs, a full visual redesign) made directly on
+top of this branch's HEAD while its review was still open. It is not part of
+this plan, conflicts with SPEC.md §2.4/§8 as written (no personality, no
+named protagonist, villagers have no faces), and should not be popped or
+merged without its own ratification pass — see the SDD ledger
+(`.superpowers/sdd/2026-09-02-game-layer-in-world-decisions/progress.md`)
+for the full incident record.

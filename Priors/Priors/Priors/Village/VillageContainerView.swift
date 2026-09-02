@@ -2,8 +2,10 @@
 //  VillageContainerView.swift
 //  Priors
 //
-//  SwiftUI container view hosting SpriteKit VillageScene, VirtualControls overlay,
-//  and ScenarioDialog modal.
+//  SwiftUI container view hosting the SpriteKit VillageScene and the
+//  VirtualControls overlay. SPEC §8.2/§8.3: there is no modal — decisions are
+//  armed in the world and resolve there, so this view only wires input in and
+//  resolutions out.
 //
 
 import SwiftUI
@@ -18,7 +20,12 @@ public struct VillageContainerView: View {
     public let onComplete: @MainActor (SessionRecord) -> Void
 
     @State private var villageScene: VillageScene
+    // `canInteractNow` is a computed property on a plain SKScene subclass that
+    // SwiftUI does not observe, so it cannot drive a re-render on its own.
+    // Poll it instead — the interact button has to light up as the player
+    // walks up to an armed villager, which is a per-frame condition.
     @State private var canInteract: Bool = false
+    @State private var pollTimer: Timer?
 
     public init(
         coordinator: VillageCoordinator,
@@ -47,29 +54,10 @@ public struct VillageContainerView: View {
                 onVectorChange: { vector in
                     villageScene.setInputVector(vector)
                 },
-                onInteract: {
-                    if villageScene.activeTrigger != nil {
-                        coordinator.presentCurrentScenario(scene: villageScene)
-                    }
+                onInteractPressChanged: { pressed in
+                    villageScene.setInteractPressed(pressed)
                 }
             )
-
-            // 3. Scenario Presentation Modal
-            if coordinator.isPresentingScenario, let prompt = coordinator.activePrompt {
-                ScenarioDialogView(
-                    prompt: prompt,
-                    onChoice: { engaged in
-                        let metrics = villageScene.currentScenarioMetrics()
-                        coordinator.handleChoice(
-                            engaged: engaged,
-                            metrics: metrics,
-                            movementSampler: movementSampler,
-                            scene: villageScene
-                        )
-                    }
-                )
-                .transition(.opacity)
-            }
         }
         .onAppear {
             movementSampler.start()
@@ -77,8 +65,16 @@ public struct VillageContainerView: View {
             coordinator.onSessionComplete = { @MainActor record in
                 onComplete(record)
             }
-            villageScene.onActiveTriggerChanged = { trigger in
-                canInteract = (trigger != nil)
+            // One tuple parameter, not two: the resolution arrives as a single
+            // named tuple (see VillageScene.onLiveDecisionResolved).
+            villageScene.onLiveDecisionResolved = { result in
+                coordinator.resolveLiveDecision(
+                    engaged: result.engaged,
+                    zoneDwellSeconds: result.zoneDwellSeconds,
+                    metrics: result.metrics,
+                    movementSampler: movementSampler,
+                    scene: villageScene
+                )
             }
             // SPEC §8 — the lantern count is the whole HUD, so the scene's task
             // state has to reach it.
@@ -88,6 +84,31 @@ public struct VillageContainerView: View {
             villageScene.onLanternsRefilled = { remaining in
                 coordinator.lanternCount = remaining
             }
+            coordinator.armNextDecision(scene: villageScene)
+            // `.onAppear` can run more than once for the same view (a
+            // re-entered tab, a recomposed parent). Leaving the previous timer
+            // running would double the poll rate every time.
+            pollTimer?.invalidate()
+            pollTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+                Task { @MainActor in
+                    canInteract = villageScene.canInteractNow
+                    // `armNextDecision` needs the scene's playerNode and
+                    // decisionLocations, which only exist after
+                    // didMove(to:). SwiftUI does not guarantee that SpriteView
+                    // has presented the scene by the time .onAppear runs, so
+                    // the first arm is retried until it takes. Every later
+                    // slot is armed synchronously by resolveLiveDecision, and
+                    // this is a no-op once slot 0 is armed (or the session is
+                    // over) thanks to armNextDecision's own guards.
+                    if coordinator.liveDecision == nil && coordinator.currentSlot == 0 && coordinator.decisions.isEmpty {
+                        coordinator.armNextDecision(scene: villageScene)
+                    }
+                }
+            }
+        }
+        .onDisappear {
+            pollTimer?.invalidate()
+            pollTimer = nil
         }
     }
 }

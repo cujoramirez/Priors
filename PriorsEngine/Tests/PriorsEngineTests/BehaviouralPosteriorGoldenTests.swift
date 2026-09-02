@@ -204,6 +204,12 @@ final class BehaviouralPosteriorGoldenTests: XCTestCase {
     /// read as "near the line" rather than "slow player", shifting θ_e by ~0.12
     /// on no evidence. The weak prior is load-bearing, not a tuning choice —
     /// this fails if someone tightens it.
+    ///
+    /// rt_ms chosen as 3x RT_BASE_MEDIAN_MS (1500) = 4500, so this probe sits
+    /// at the same 1.373-prior-SD distance the original test used under the old
+    /// 2000ms center (rt_ms=6000.0 = 3x 2000). Preserving the SD-distance — not
+    /// the literal ms value — keeps this test's calibration comparable across
+    /// Task 2's center change (2000ms -> 1500ms, SPEC §8.3).
     func testRTBasePriorIsWeakEnoughThatASlowPlayerIsNotMisread() {
         XCTAssertEqual(BehaviouralPosterior.rtBasePriorSD, 0.8, accuracy: 1e-12)
 
@@ -211,7 +217,7 @@ final class BehaviouralPosteriorGoldenTests: XCTestCase {
         var p = BehaviouralPosterior()
         let prior = p.meanSD(.thetaE).mean
         for _ in 0..<8 {
-            p.update(price: 0.45, trait: .thetaE, engaged: true, rtMs: 6_000)
+            p.update(price: 0.45, trait: .thetaE, engaged: true, rtMs: 4_500)
         }
         var choice = Posterior()
         for _ in 0..<8 { choice.update(price: 0.45, trait: .thetaE, engaged: true) }

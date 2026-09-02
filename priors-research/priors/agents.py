@@ -31,7 +31,7 @@ from priors.scenarios import BETA, THETA_E, THETA_I, TraitName
 THETA_E_BETA_AB = (2.0, 3.0)
 THETA_I_BETA_AB = (2.0, 4.0)
 BETA_LOGNORM = (np.log(8.0), 0.5)
-RT_BASE_LOGNORM = (np.log(2000.0), 0.4)
+RT_BASE_LOGNORM = (np.log(1500.0), 0.4)
 
 #: SCHEMA §7 — width of the near-line band, in price units.
 NEAR_LINE_WIDTH = 0.08

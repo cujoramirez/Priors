@@ -34,12 +34,24 @@ public enum EventTriggers {
         public var isUncertain: Bool { abs(probability - 0.5) < 0.1 }
     }
 
+    /// What `shadowTarget` needs from a posterior: `predictedEngage` alone.
+    /// Not part of `ChoicePosterior` (whose EIG machinery never needs it), so
+    /// this is its own minimal protocol — same shape as `ChoicePosterior` +
+    /// `ADOSelector.selectDesign(posterior: some ChoicePosterior, ...)`.
+    /// Both conformances are empty: `Posterior.predictedEngage` and
+    /// `BehaviouralPosterior.predictedEngage` already share this signature.
+    public protocol EngagementPredicting {
+        func predictedEngage(price: Double, trait: Trait) -> Double
+    }
+    // Conformances are declared at file scope, below `EventTriggers`'s
+    // closing brace — Swift doesn't allow an `extension` inside a type body.
+
     /// Where the shadow should walk, from the posterior alone.
     ///
     /// SPEC §6.2 — after decision 15, four randomised appearances. The
     /// prediction is recorded so `shadow_correct` (SCHEMA §3) can be scored
     /// honestly afterwards.
-    public static func shadowTarget(posterior: Posterior, nextDesign: Design) -> ShadowPrediction {
+    public static func shadowTarget(posterior: some EngagementPredicting, nextDesign: Design) -> ShadowPrediction {
         let p = posterior.predictedEngage(price: nextDesign.price, trait: nextDesign.trait)
         return ShadowPrediction(willEngage: p > 0.5, probability: p)
     }
@@ -187,3 +199,11 @@ public enum EventTriggers {
         return s.count % 2 == 0 ? (s[m - 1] + s[m]) / 2 : s[m]
     }
 }
+
+// `EngagementPredicting` conformances (Swift extensions can't nest inside
+// `EventTriggers`, so they live here, next to the protocol's declaration
+// above). Both are empty: `Posterior.predictedEngage` (Posterior.swift:180)
+// and `BehaviouralPosterior.predictedEngage` (BehaviouralPosterior.swift:399)
+// already match the protocol's signature exactly.
+extension Posterior: EventTriggers.EngagementPredicting {}
+extension BehaviouralPosterior: EventTriggers.EngagementPredicting {}

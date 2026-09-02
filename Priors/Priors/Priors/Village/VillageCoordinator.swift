@@ -19,17 +19,26 @@ public final class VillageCoordinator: @unchecked Sendable {
     public let eyeEnabled: Bool
 
     // Bayesian Engine State
-    public var posterior = Posterior()
+    public var posterior = BehaviouralPosterior()
     public var selectionState = SelectionState()
     public var currentSlot: Int = 0
     public var lanternCount: Int = 3
-    public var activePrompt: ScenarioPromptData?
-    public var isPresentingScenario: Bool = false
+    /// SPEC §8.3 — the single decision currently live in the world, or nil
+    /// between slots. Replaces the old `activePrompt`/`isPresentingScenario`
+    /// pair: there is no modal to present, so presentation state collapses
+    /// into "is something armed".
+    public var liveDecision: LiveDecision?
 
     // Timing & Monotonic Clock
+    //
+    // There is no stored "presentation instant" any more. SPEC §8.3 defines
+    // the clock that matters as "time between entering a threshold's zone and
+    // resolving it", and arming happens the moment the *previous* decision
+    // resolves, with the player still standing at the previous location. The
+    // arm instant is therefore an internal event that is never logged:
+    // `t_presented` is derived from the scene's measured in-zone dwell, so
+    // SCHEMA §1's `rt_ms = t_decided − t_presented` stays exactly true.
     public private(set) var sessionStartInstant: ContinuousClock.Instant
-    private var scenarioPresentationInstant: ContinuousClock.Instant?
-    private var scenarioPresentationSeconds: Double = 0.0
 
     // Logged Data
     public private(set) var decisions: [DecisionRecord] = []
@@ -40,6 +49,18 @@ public final class VillageCoordinator: @unchecked Sendable {
     // Event Schedules
     public private(set) var eyeDecisionIndex: Int?
     private let shadowSlots: Set<Int> = [16, 20, 24, 28] // 4 moments after decision 15 (SPEC §6.2)
+    /// Each pre-built location hosts at most one decision per session, so the
+    /// player never sees the same spot light up twice. The map ships exactly
+    /// 19 theta_e and 11 theta_i spots, matching `Scenarios.traitSchedule`.
+    private var usedLocationIDs: Set<Int> = []
+    /// SPEC §6.2 / SCHEMA §3 — the shadow spawns at ARM time, but the player
+    /// then has to walk to the location, which routinely takes longer than the
+    /// shadow's fixed 10s walk. Scoring on the shadow's arrival would compare
+    /// the prediction against `decisions.last`, which by then is usually the
+    /// PREVIOUS slot's outcome. So the prediction is parked here, keyed to the
+    /// slot it was made for, and scored in `resolveLiveDecision` when that
+    /// exact slot resolves.
+    private var pendingShadowPrediction: (slot: Int, prediction: EventTriggers.ShadowPrediction)?
 
     @ObservationIgnored
     public var onSessionComplete: (@MainActor (SessionRecord) -> Void)?
@@ -66,27 +87,52 @@ public final class VillageCoordinator: @unchecked Sendable {
         posterior.meanSD(.thetaE).sd
     }
 
+    /// SPEC §8.3 — arms the next ADO slot's design at whichever pre-built
+    /// location's trait matches, nearest to the player. Exactly one decision
+    /// is live at a time: this keeps ADO fully adaptive, since the design for
+    /// slot N+1 is only computed after slot N's response is known.
     @MainActor
-    public func presentCurrentScenario(scene: VillageScene) {
+    public func armNextDecision(scene: VillageScene) {
         guard currentSlot < Scenarios.decisionCount else { return }
-        guard !isPresentingScenario else { return }
+        guard liveDecision == nil else { return }
+
+        // The player has to exist before anything else happens: the view's
+        // retry loop ticks at 20 Hz until the scene is presented, and
+        // `selectDesign` is not free. Nothing below it may consume a slot or
+        // mutate state on a tick that is going to bail out anyway.
+        guard let player = scene.playerNode else { return }
 
         let design = ADOSelector.selectDesign(
             posterior: posterior,
             slot: currentSlot,
             state: selectionState
         )
+        // SCHEMA §1 — `predicted_engage` and the four `posterior_*` fields are
+        // captured HERE, before the choice is known, and travel with the
+        // armed decision. They used to be read at resolution: numerically the
+        // same, because the posterior is untouched in between, but honest by
+        // accident rather than by construction.
+        let decision = LiveDecision(design: design, capturedFrom: posterior)
+        let wantedTrait = decision.isSpatial ? Trait.thetaE : Trait.thetaI
+        let candidates = scene.decisionLocations.filter {
+            $0.trait == wantedTrait && !usedLocationIDs.contains($0.id)
+        }
+        guard let nearest = candidates.min(by: { a, b in
+            let da = hypot(a.position.x - player.position.x, a.position.y - player.position.y)
+            let db = hypot(b.position.x - player.position.x, b.position.y - player.position.y)
+            return da < db
+        }) else {
+            assertionFailure("slot \(currentSlot): no unused \(wantedTrait) location left")
+            return
+        }
+        usedLocationIDs.insert(nearest.id)
 
-        let now = ContinuousClock.now
-        scenarioPresentationInstant = now
-        scenarioPresentationSeconds = monotonicSecondsSinceStart(at: now)
-
-        activePrompt = ScenarioPromptData(design: design)
-        isPresentingScenario = true
+        liveDecision = decision
+        scene.armDecision(decision, at: nearest)
 
         // Check if Shadow event should trigger before this decision (SPEC §6.2)
         if shadowSlots.contains(currentSlot) {
-            triggerShadowPrediction(nextDesign: design, in: scene)
+            triggerShadowPrediction(nextDesign: design, armedAt: nearest.position, in: scene)
         }
 
         // Check if Eye event should trigger at this decision index (SPEC §6.3)
@@ -95,34 +141,38 @@ public final class VillageCoordinator: @unchecked Sendable {
         }
     }
 
+    /// SPEC §8.3 — the world resolved the armed decision (threshold crossed,
+    /// or villager held/left). Logs the record, folds the response into the
+    /// posterior, then arms the next slot — or finishes the session.
     @MainActor
-    public func handleChoice(
+    public func resolveLiveDecision(
         engaged: Bool,
+        zoneDwellSeconds: TimeInterval,
         metrics: (approachFrac: Double, backtracks: Int, idleMs: Int),
         movementSampler: MovementSampler,
         scene: VillageScene
     ) {
-        guard isPresentingScenario, activePrompt != nil else { return }
+        guard let decision = liveDecision else { return }
+        let design = decision.design
+        assert(decision.priorSnapshot.isRecorded,
+               "a decision that reaches the log must carry the posterior captured when it was armed")
 
+        // SPEC §8.3 — `rt_ms` is the hesitation at the decision, not the walk
+        // to it. The scene measures it from the frame the player entered the
+        // zone; `t_presented` is then derived backwards from it so SCHEMA §1's
+        // `rt_ms = t_decided − t_presented` holds exactly. `eye_window`'s
+        // ±240s tolerance is untouched at this scale.
         let now = ContinuousClock.now
-        let presentationTime = scenarioPresentationInstant ?? now
-        let duration = now - presentationTime
-        let rtMs = Int(duration.components.seconds * 1000 + duration.components.attoseconds / 1_000_000_000_000_000)
+        let dwell = max(0.0, zoneDwellSeconds)
+        let rtMs = Int((dwell * 1000.0).rounded())
         let tDecided = monotonicSecondsSinceStart(at: now)
+        let tPresented = tDecided - Double(rtMs) / 1000.0
 
-        let design = ADOSelector.selectDesign(
-            posterior: posterior,
-            slot: currentSlot,
-            state: selectionState
-        )
-
-        let (meanE, sdE) = posterior.meanSD(.thetaE)
-        let (meanI, sdI) = posterior.meanSD(.thetaI)
-        let predictedEngage = posterior.predictedEngage(price: design.price, trait: design.trait)
+        let snapshot = decision.priorSnapshot
 
         // Evaluate Eye Window (SCHEMA §1)
         let (inEyeWindow, eyeSide) = EventTriggers.eyeWindow(
-            tPresented: scenarioPresentationSeconds,
+            tPresented: tPresented,
             eyeTimestamp: eyeTimestamp
         )
 
@@ -133,7 +183,7 @@ public final class VillageCoordinator: @unchecked Sendable {
             skin: design.skin,
             price: design.price,
             engaged: engaged,
-            tPresented: scenarioPresentationSeconds,
+            tPresented: tPresented,
             tDecided: tDecided,
             rtMs: rtMs,
             approachFrac: metrics.approachFrac,
@@ -141,18 +191,26 @@ public final class VillageCoordinator: @unchecked Sendable {
             idleMs: metrics.idleMs,
             eyeWindow: inEyeWindow,
             eyeSide: eyeSide,
-            posteriorMeanE: meanE,
-            posteriorSDE: sdE,
-            posteriorMeanI: meanI,
-            posteriorSDI: sdI,
-            predictedEngage: predictedEngage,
+            posteriorMeanE: snapshot.meanE,
+            posteriorSDE: snapshot.sdE,
+            posteriorMeanI: snapshot.meanI,
+            posteriorSDI: snapshot.sdI,
+            predictedEngage: snapshot.predictedEngage,
             isRepeatOf: design.isRepeatOf
         )
 
         decisions.append(record)
 
+        // SPEC §6.2 — score the shadow against the slot it actually predicted,
+        // not against whatever landed in `decisions` by the time it finished
+        // walking.
+        if let pending = pendingShadowPrediction, pending.slot == currentSlot {
+            shadowCorrect.append(pending.prediction.willEngage == engaged)
+            pendingShadowPrediction = nil
+        }
+
         // Update Bayesian Engine
-        posterior.update(price: design.price, trait: design.trait, engaged: engaged)
+        posterior.update(price: design.price, trait: design.trait, engaged: engaged, rtMs: Double(rtMs))
         selectionState.commit(design)
 
         // Update Lantern Inventory
@@ -165,14 +223,14 @@ public final class VillageCoordinator: @unchecked Sendable {
         // Update Audio Stem Decay (SPEC §8.1)
         AudioManager.shared.updateDecay(meanPosteriorSD: newSdE)
 
-        // Dismiss Scenario Dialog
-        isPresentingScenario = false
-        activePrompt = nil
+        liveDecision = nil
         currentSlot += 1
 
         // Check if session completed (30 decisions)
         if currentSlot >= Scenarios.decisionCount {
             finishSession(movementSampler: movementSampler, scene: scene)
+        } else {
+            armNextDecision(scene: scene)
         }
     }
 
@@ -203,7 +261,7 @@ public final class VillageCoordinator: @unchecked Sendable {
     }
 
     @MainActor
-    private func triggerShadowPrediction(nextDesign: Design, in scene: VillageScene) {
+    private func triggerShadowPrediction(nextDesign: Design, armedAt armedPosition: CGPoint, in scene: VillageScene) {
         let prediction = EventTriggers.shadowTarget(posterior: posterior, nextDesign: nextDesign)
         let t = monotonicSecondsSinceStart(at: ContinuousClock.now)
         shadowAppearances.append(t)
@@ -211,18 +269,17 @@ public final class VillageCoordinator: @unchecked Sendable {
         // Predict destination point
         let targetPoint: CGPoint
         if prediction.willEngage {
-            targetPoint = scene.activeTrigger?.position ?? scene.playerNode.position
+            targetPoint = armedPosition
         } else {
             // Away from trigger
             targetPoint = CGPoint(x: scene.playerNode.position.x - 120, y: scene.playerNode.position.y - 120)
         }
 
-        scene.spawnShadow(predictedDestination: targetPoint) { [weak self] in
-            guard let self = self else { return }
-            // Scored afterwards against actual decision
-            let wasCorrect = (self.decisions.last?.engaged == prediction.willEngage)
-            self.shadowCorrect.append(wasCorrect)
-        }
+        pendingShadowPrediction = (slot: currentSlot, prediction: prediction)
+
+        // Arrival is purely cosmetic now: the prediction is scored when this
+        // slot resolves, however long the player takes to get there.
+        scene.spawnShadow(predictedDestination: targetPoint) {}
     }
 
     @MainActor

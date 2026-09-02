@@ -7,44 +7,19 @@
 //
 
 import SpriteKit
+import PriorsEngine
 
-public struct TriggerZoneInfo: Sendable {
+/// One of the 30 pre-built spots a decision can be armed at. Ordinary
+/// scenery until VillageCoordinator arms it (SPEC §8.3) — no physics body,
+/// no visual, until then.
+public struct DecisionLocation: Sendable {
     public let id: Int
     public let position: CGPoint
     public let regionName: String
-    public let templateHint: String
-}
-
-@MainActor
-public class ScenarioTriggerNode: SKNode {
-    public let zoneInfo: TriggerZoneInfo
-    public let radius: CGFloat = 36.0
-
-    public init(zoneInfo: TriggerZoneInfo) {
-        self.zoneInfo = zoneInfo
-        super.init()
-        self.position = zoneInfo.position
-        self.name = "trigger_\(zoneInfo.id)"
-
-        // Sensor physics body
-        let body = SKPhysicsBody(circleOfRadius: radius)
-        body.isDynamic = false
-        body.categoryBitMask = PhysicsCategory.trigger
-        body.contactTestBitMask = PhysicsCategory.player
-        body.collisionBitMask = PhysicsCategory.none
-        self.physicsBody = body
-
-        // Subtle ground indicator
-        let marker = SKShapeNode(circleOfRadius: 4.0)
-        marker.fillColor = SKColor(white: 1.0, alpha: 0.25)
-        marker.strokeColor = .clear
-        marker.zPosition = 2
-        addChild(marker)
-    }
-
-    required init?(coder aDecoder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
+    /// theta_e -> a spatial threshold (PATH/DETOUR/TRADE); theta_i -> a
+    /// waiting villager (ERROR/CREDIT/GIVE). SPEC §3.1/§3.2's split is
+    /// exactly the trait split, so this one field is enough to route arming.
+    public let trait: Trait
 }
 
 @MainActor
@@ -107,6 +82,39 @@ public struct VillageMapData {
     public var deadSpaceTileCount: Int = 0
     public var deadSpaceFraction: Double {
         walkableTileCount > 0 ? Double(deadSpaceTileCount) / Double(walkableTileCount) : 0.0
+    }
+
+    /// `[row][col]`, true where the tile is floor rather than wall, water,
+    /// cottage or canopy — i.e. the builder's grid codes 0 and 1.
+    ///
+    /// Published so the scene can check a spot before putting something in
+    /// the world at it. A waiting villager (SPEC §8.3) used to spawn at an
+    /// unchecked random offset, which could drop it inside a cottage or on
+    /// the pond and walk it through geometry.
+    public var walkableTiles: [[Bool]] = []
+
+    public func isWalkable(worldPoint point: CGPoint) -> Bool {
+        guard !walkableTiles.isEmpty else { return true }
+        let col = Int((point.x / tileSize).rounded(.down))
+        let row = Int((point.y / tileSize).rounded(.down))
+        guard row >= 0, row < walkableTiles.count,
+              col >= 0, col < walkableTiles[row].count else { return false }
+        return walkableTiles[row][col]
+    }
+
+    /// True when every point along the straight segment is walkable, sampled
+    /// at half-tile steps. A villager walks in a straight line, so a walkable
+    /// start and end is not enough on its own.
+    public func isWalkablePath(from start: CGPoint, to end: CGPoint) -> Bool {
+        let distance = hypot(end.x - start.x, end.y - start.y)
+        let steps = max(1, Int((distance / (tileSize / 2)).rounded(.up)))
+        for i in 0...steps {
+            let t = CGFloat(i) / CGFloat(steps)
+            let p = CGPoint(x: start.x + (end.x - start.x) * t,
+                            y: start.y + (end.y - start.y) * t)
+            if !isWalkable(worldPoint: p) { return false }
+        }
+        return true
     }
 }
 
@@ -194,7 +202,7 @@ public final class VillageMapBuilder {
         node.addChild(collider)
     }
 
-    public func buildVillage(in rootNode: SKNode) -> (mapData: VillageMapData, triggers: [ScenarioTriggerNode], eyeNode: EyeNode) {
+    public func buildVillage(in rootNode: SKNode) -> (mapData: VillageMapData, decisionLocations: [DecisionLocation], eyeNode: EyeNode) {
         let assets = VillageAssets.shared
         grid = Array(repeating: Array(repeating: 0, count: Self.mapCols), count: Self.mapRows)
         doorPositions = []
@@ -240,8 +248,8 @@ public final class VillageMapBuilder {
         // 5. Build Cottages & Buildings
         buildCottages(in: structuresNode)
 
-        // 6. Build 30 Scenario Trigger Zones
-        let triggers = buildScenarioTriggers(in: rootNode)
+        // 6. Decision locations (no physics/visuals until armed — SPEC §8.3)
+        let decisionLocations = buildDecisionLocations()
 
         // 7. Build Eye Node
         let eyeNode = EyeNode()
@@ -251,6 +259,13 @@ public final class VillageMapBuilder {
         // 8. Calculate Dead Space Ratio
         var walkable = 0
         var deadSpace = 0
+        var walkableTiles = Array(repeating: Array(repeating: false, count: Self.mapCols),
+                                  count: Self.mapRows)
+        for r in 0..<Self.mapRows {
+            for c in 0..<Self.mapCols {
+                walkableTiles[r][c] = grid[r][c] != 2
+            }
+        }
         for r in 2..<(Self.mapRows - 2) {
             for c in 2..<(Self.mapCols - 2) {
                 if grid[r][c] == 0 {
@@ -266,8 +281,9 @@ public final class VillageMapBuilder {
         mapData.doorPositions = doorPositions
         mapData.walkableTileCount = walkable
         mapData.deadSpaceTileCount = deadSpace
+        mapData.walkableTiles = walkableTiles
 
-        return (mapData, triggers, eyeNode)
+        return (mapData, decisionLocations, eyeNode)
     }
 
     /// A two-tile band of woods around the map, drawn into the canopy layer and
@@ -411,50 +427,36 @@ public final class VillageMapBuilder {
         node.addChild(houseCollider)
     }
 
-    private func buildScenarioTriggers(in node: SKNode) -> [ScenarioTriggerNode] {
-        // Exactly 30 triggers distributed across cottages, cellars, hedge gaps, crossroads
-        let triggerConfigs: [(x: Int, y: Int, name: String, hint: String)] = [
-            (25, 43, "r_cellar_nw", "PATH"),
-            (55, 43, "r_elder_door", "ERROR"),
-            (20, 31, "r_weaver_porch", "GIVE"),
-            (58, 31, "r_smithy_forge", "CREDIT"),
-            (25, 19, "r_woodcutter_shed", "PATH"),
-            (51, 19, "r_farm_gate", "DETOUR"),
-            (40, 35, "r_town_hall_steps", "ERROR"),
-            (40, 26, "r_crossroads_south", "TRADE"),
-            (32, 29, "r_west_bridge", "PATH"),
-            (48, 29, "r_east_crossing", "GIVE"),
-            (28, 42, "r_north_hedge_gap", "PATH"),
-            (52, 42, "r_north_lane", "DETOUR"),
-            (16, 29, "r_deep_west_path", "PATH"),
-            (64, 29, "r_deep_east_path", "PATH"),
-            (40, 47, "r_north_clearing_edge", "TRADE"),
-            (40, 13, "r_south_mill_gate", "DETOUR"),
-            (24, 25, "r_orchard_corner", "CREDIT"),
-            (56, 25, "r_pond_pier", "GIVE"),
-            (36, 42, "r_hall_backdoor", "ERROR"),
-            (44, 42, "r_hall_cellar", "PATH"),
-            (30, 20, "r_woodland_track", "PATH"),
-            (50, 20, "r_pasture_stile", "PATH"),
-            (38, 30, "r_well_square", "CREDIT"),
-            (42, 30, "r_fountain_side", "GIVE"),
-            (18, 40, "r_northwest_meadow_trail", "PATH"),
-            (62, 40, "r_northeast_meadow_trail", "PATH"),
-            (18, 15, "r_southwest_forest_path", "PATH"),
-            (62, 15, "r_southeast_lakeside", "DETOUR"),
-            (35, 27, "r_peddler_stand", "TRADE"),
-            (45, 27, "r_lantern_rack", "ERROR")
+    /// 30 pre-built spots, unchanged in position/name from the original
+    /// layout — only the label narrows from a specific template hint to the
+    /// trait the spot's flavour fits (SPEC §5.1 reserves template choice for
+    /// ADO, never a location).
+    private func buildDecisionLocations() -> [DecisionLocation] {
+        let configs: [(x: Int, y: Int, name: String, trait: Trait)] = [
+            (25, 43, "r_cellar_nw", .thetaE), (55, 43, "r_elder_door", .thetaI),
+            (20, 31, "r_weaver_porch", .thetaI), (58, 31, "r_smithy_forge", .thetaI),
+            (25, 19, "r_woodcutter_shed", .thetaE), (51, 19, "r_farm_gate", .thetaE),
+            (40, 35, "r_town_hall_steps", .thetaI), (40, 26, "r_crossroads_south", .thetaE),
+            (32, 29, "r_west_bridge", .thetaE), (48, 29, "r_east_crossing", .thetaI),
+            (28, 42, "r_north_hedge_gap", .thetaE), (52, 42, "r_north_lane", .thetaE),
+            (16, 29, "r_deep_west_path", .thetaE), (64, 29, "r_deep_east_path", .thetaE),
+            (40, 47, "r_north_clearing_edge", .thetaE), (40, 13, "r_south_mill_gate", .thetaE),
+            (24, 25, "r_orchard_corner", .thetaI), (56, 25, "r_pond_pier", .thetaI),
+            (36, 42, "r_hall_backdoor", .thetaI), (44, 42, "r_hall_cellar", .thetaE),
+            (30, 20, "r_woodland_track", .thetaE), (50, 20, "r_pasture_stile", .thetaE),
+            (38, 30, "r_well_square", .thetaI), (42, 30, "r_fountain_side", .thetaI),
+            (18, 40, "r_northwest_meadow_trail", .thetaE), (62, 40, "r_northeast_meadow_trail", .thetaE),
+            (18, 15, "r_southwest_forest_path", .thetaE), (62, 15, "r_southeast_lakeside", .thetaE),
+            (35, 27, "r_peddler_stand", .thetaE), (45, 27, "r_lantern_rack", .thetaI),
         ]
-
-        var nodes: [ScenarioTriggerNode] = []
-        for (index, cfg) in triggerConfigs.enumerated() {
-            let pos = CGPoint(x: CGFloat(cfg.x) * Self.tileSize, y: CGFloat(cfg.y) * Self.tileSize)
-            let info = TriggerZoneInfo(id: index, position: pos, regionName: cfg.name, templateHint: cfg.hint)
-            let trigger = ScenarioTriggerNode(zoneInfo: info)
-            node.addChild(trigger)
-            nodes.append(trigger)
+        return configs.enumerated().map { index, cfg in
+            DecisionLocation(
+                id: index,
+                position: CGPoint(x: CGFloat(cfg.x) * Self.tileSize, y: CGFloat(cfg.y) * Self.tileSize),
+                regionName: cfg.name,
+                trait: cfg.trait
+            )
         }
-        return nodes
     }
 
     private func placeGroundTile(col: Int, row: Int, tile: TileType, in node: SKNode, code: Int) {

@@ -12,7 +12,7 @@ import UIKit
 import PriorsEngine
 
 @MainActor
-public class VillageScene: SKScene, SKPhysicsContactDelegate {
+public class VillageScene: SKScene {
     // Root Effect Node for continuous palette decay (SPEC §8.1)
     public private(set) var worldEffectNode: SKEffectNode!
     public private(set) var worldNode: SKNode!
@@ -21,8 +21,8 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
     public private(set) var playerNode: PlayerNode!
     public private(set) var npcs: [NPCNode] = []
     public private(set) var eyeNode: EyeNode!
-    public private(set) var triggers: [ScenarioTriggerNode] = []
     public private(set) var mapData: VillageMapData!
+    public private(set) var decisionLocations: [DecisionLocation] = []
 
     // Camera & Lighting
     public private(set) var sceneCamera: SKCameraNode!
@@ -33,9 +33,30 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
     public var movementSampler: MovementSampler?
     private var lastSampleTime: TimeInterval = 0.0
 
-    // Scenario Trigger Proximity Tracking
-    public private(set) var activeTrigger: ScenarioTriggerNode?
-    public var onActiveTriggerChanged: ((ScenarioTriggerNode?) -> Void)?
+    // MARK: - Live decision (SPEC §8.3)
+    //
+    // Exactly one decision is ever live at a time. `armDecision` places
+    // either a ThresholdNode (spatial) or a WaitingVillagerNode (social);
+    // resolution is detected here, in `update(_:)`, and reported through
+    // `onLiveDecisionResolved` rather than any button callback for spatial
+    // decisions — the world resolves itself.
+    private var armedThreshold: ThresholdNode?
+    private var armedVillager: WaitingVillagerNode?
+    private var retiredDecisionLayer: SKNode!
+    // One tuple parameter, not two arguments: the resolution travels as a
+    // single named tuple, so the extra parens around it are load-bearing.
+    //
+    // `zoneDwellSeconds` is SPEC §8.3's hesitation: "time between entering a
+    // threshold's zone and resolving it." Only the scene knows that instant —
+    // the coordinator's arm time is the moment the *previous* decision
+    // resolved, half a village away — so it is measured here and travels with
+    // the resolution. It is what `rt_ms` is made of (SCHEMA §1).
+    public var onLiveDecisionResolved: (((engaged: Bool, zoneDwellSeconds: TimeInterval, metrics: (approachFrac: Double, backtracks: Int, idleMs: Int))) -> Void)?
+
+    private var isInsideArmedZone: Bool = false
+    private var isInteractHeld: Bool = false
+    private var interactHoldStartTime: TimeInterval?
+    private static let socialHoldDuration: TimeInterval = 0.6
 
     // MARK: - The task (SPEC §8)
     //
@@ -57,7 +78,9 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
     private static let refillRadius: CGFloat = 56
 
     // Zone Exploration Metrics (SCHEMA §1, §7.1)
-    private var zoneEntryTime: TimeInterval = 0.0
+    /// nil until the player is inside the armed zone. Was a `0.0` sentinel,
+    /// which is a value `currentTime` genuinely takes in tests.
+    private var zoneEntryTime: TimeInterval?
     private var zoneLastMovementTime: TimeInterval = 0.0
     private var zoneIdleDuration: TimeInterval = 0.0
     private var zoneMinDistance: CGFloat = 1000.0
@@ -96,8 +119,11 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
     private func setupWorld() {
         guard worldNode == nil else { return }
 
+        // No `contactDelegate`: nothing in this scene resolves on contact.
+        // Decision zones are distance-based (`updateArmedDecision`), and the
+        // delegate that used to be installed here had no `didBegin(_:)`
+        // behind it — every contact was computed and discarded.
         physicsWorld.gravity = .zero
-        physicsWorld.contactDelegate = self
 
         // 1. World Effect Node (Dusk shift)
         worldEffectNode = SKEffectNode()
@@ -107,11 +133,21 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
         worldNode = SKNode()
         worldEffectNode.addChild(worldNode)
 
+        // Resolved decision nodes are moved here to fade out. They leave
+        // `worldNode.children` on the resolving frame, so "exactly one
+        // decision is live" stays literally true, but they are still on
+        // screen for the length of the fade — a villager that vanished the
+        // instant the player walked past was hard to tell apart from SPEC
+        // §8.3's forbidden "reacts to being declined."
+        retiredDecisionLayer = SKNode()
+        retiredDecisionLayer.name = "retired_decisions"
+        worldNode.addChild(retiredDecisionLayer)
+
         // 2. Build 80x60 Village Tilemap
         let buildResult = VillageMapBuilder.shared.buildVillage(in: worldNode)
         self.mapData = buildResult.mapData
         self.undeliveredDoors = buildResult.mapData.doorPositions
-        self.triggers = buildResult.triggers
+        self.decisionLocations = buildResult.decisionLocations
         self.eyeNode = buildResult.eyeNode
 
         // 3. Player Node
@@ -238,8 +274,8 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
         // Smooth Camera Follow with clamping
         updateCameraPosition()
 
-        // Active Trigger Proximity & Metric Tracking
-        updateTriggerProximity(currentTime: currentTime)
+        // Armed live decision: zone dwell, crossing / hold resolution
+        updateArmedDecision(currentTime: currentTime)
 
         // Eye Proximity Tracking
         updateEyeProximity(currentTime: currentTime)
@@ -311,53 +347,174 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
         cam.position.y += (targetY - cam.position.y) * lerpFactor
     }
 
-    private func updateTriggerProximity(currentTime: TimeInterval) {
+    /// True only when a social decision is armed and the player is close
+    /// enough to start holding Interact — drives VirtualControlsView's
+    /// `canInteract`.
+    public var canInteractNow: Bool {
+        guard let villager = armedVillager, let player = playerNode else { return false }
+        return villager.isPlayerClose(playerPosition: player.position)
+    }
+
+    /// Idempotent by contract: only a genuine false->true / true->false
+    /// transition does anything. A repeated `true` (a per-frame poll, a
+    /// re-fired SwiftUI onChange) must not restart the hold timer, or every
+    /// social decision would resolve as a decline. Task 8's VirtualControls
+    /// happens to de-duplicate today; this does not rely on that.
+    public func setInteractPressed(_ pressed: Bool) {
+        guard pressed != isInteractHeld else { return }
+        isInteractHeld = pressed
+        interactHoldStartTime = pressed ? nil : interactHoldStartTime
+    }
+
+    private func updateArmedDecision(currentTime: TimeInterval) {
         guard let player = playerNode else { return }
 
-        var nearestTrigger: ScenarioTriggerNode? = nil
-        var nearestDistance: CGFloat = .infinity
+        if let threshold = armedThreshold {
+            let dist = hypot(player.position.x - threshold.position.x,
+                             player.position.y - threshold.position.y)
+            let inZone = dist <= threshold.radius
 
-        for trigger in triggers {
-            let dist = hypot(player.position.x - trigger.position.x, player.position.y - trigger.position.y)
-            if dist <= trigger.radius && dist < nearestDistance {
-                nearestDistance = dist
-                nearestTrigger = trigger
-            }
-        }
-
-        if nearestTrigger !== activeTrigger {
-            activeTrigger = nearestTrigger
-            onActiveTriggerChanged?(activeTrigger)
-
-            if activeTrigger != nil {
-                // Entered new trigger zone
+            if inZone, !isInsideArmedZone {
+                isInsideArmedZone = true
+                // SPEC §8.3 — this instant, not the arm instant, is where
+                // `rt_ms` starts.
                 zoneEntryTime = currentTime
                 zoneLastMovementTime = currentTime
                 zoneIdleDuration = 0.0
-                zoneMinDistance = nearestDistance
+                zoneMinDistance = dist
                 zoneBacktrackCount = 0
                 zonePreviousDirection = player.currentDirection
-            }
-        } else if activeTrigger != nil {
-            // Still in zone: track metrics
-            if player.isMoving {
-                zoneLastMovementTime = currentTime
-                if let prevDir = zonePreviousDirection, prevDir != player.currentDirection {
-                    // Reversal / backtrack
-                    if (prevDir == .down && player.currentDirection == .up) ||
-                       (prevDir == .up && player.currentDirection == .down) ||
-                       (prevDir == .left && player.currentDirection == .right) ||
-                       (prevDir == .right && player.currentDirection == .left) {
+            } else if inZone {
+                if player.isMoving {
+                    zoneLastMovementTime = currentTime
+                    if let prevDir = zonePreviousDirection, prevDir != player.currentDirection,
+                       isOpposite(prevDir, player.currentDirection) {
                         zoneBacktrackCount += 1
                     }
+                    zonePreviousDirection = player.currentDirection
+                } else {
+                    zoneIdleDuration += (currentTime - zoneLastMovementTime)
+                    zoneLastMovementTime = currentTime
                 }
-                zonePreviousDirection = player.currentDirection
-            } else {
-                zoneIdleDuration += (currentTime - zoneLastMovementTime)
-                zoneLastMovementTime = currentTime
+                zoneMinDistance = min(zoneMinDistance, dist)
+            } else if isInsideArmedZone {
+                // Left the zone: resolve now. Crossing = got within
+                // commitRadius before leaving; otherwise a decline.
+                isInsideArmedZone = false
+                let engaged = zoneMinDistance <= threshold.commitRadius
+                let metrics = currentZoneMetrics(zoneRadius: threshold.radius)
+                let dwell = zoneDwellSeconds(at: currentTime)
+                retire(threshold)
+                armedThreshold = nil
+                zoneEntryTime = nil
+                // Everything above is reset first: the callback re-enters
+                // `armDecision` synchronously.
+                onLiveDecisionResolved?((engaged: engaged, zoneDwellSeconds: dwell, metrics: metrics))
             }
-            zoneMinDistance = min(zoneMinDistance, nearestDistance)
+            return
         }
+
+        if let villager = armedVillager {
+            let close = villager.isPlayerClose(playerPosition: player.position)
+            let declineDistance = villager.approachRadius * 2.0
+            let dist = hypot(player.position.x - villager.position.x,
+                             player.position.y - villager.position.y)
+
+            // Approach-phase zone dwell, tracked before the hold branch so it
+            // runs on every frame the player is in the zone — including the
+            // frames they spend holding Interact. Same instrumentation the
+            // spatial branch uses, so a social decision's approachFrac and
+            // backtracks are observed quantities rather than constants. The
+            // zone here is the decline radius, which opens once the villager
+            // has stopped and the player has come inside it.
+            if villager.hasArrived, dist <= declineDistance {
+                if zoneEntryTime == nil {
+                    // Same as the spatial case: `rt_ms` starts here, on first
+                    // approach, not when the decision was armed (SPEC §8.3).
+                    zoneEntryTime = currentTime
+                    zoneLastMovementTime = currentTime
+                    zoneIdleDuration = 0.0
+                    zoneMinDistance = dist
+                    zoneBacktrackCount = 0
+                    zonePreviousDirection = player.currentDirection
+                } else {
+                    if player.isMoving {
+                        zoneLastMovementTime = currentTime
+                        if let prevDir = zonePreviousDirection, prevDir != player.currentDirection,
+                           isOpposite(prevDir, player.currentDirection) {
+                            zoneBacktrackCount += 1
+                        }
+                        zonePreviousDirection = player.currentDirection
+                    } else {
+                        zoneIdleDuration += (currentTime - zoneLastMovementTime)
+                        zoneLastMovementTime = currentTime
+                    }
+                    zoneMinDistance = min(zoneMinDistance, dist)
+                }
+            }
+
+            if close, isInteractHeld {
+                if interactHoldStartTime == nil { interactHoldStartTime = currentTime }
+                if currentTime - (interactHoldStartTime ?? currentTime) >= Self.socialHoldDuration {
+                    let metrics = currentZoneMetrics(zoneRadius: declineDistance)
+                    let dwell = zoneDwellSeconds(at: currentTime)
+                    retire(villager)
+                    armedVillager = nil
+                    interactHoldStartTime = nil
+                    zoneEntryTime = nil
+                    onLiveDecisionResolved?((engaged: true, zoneDwellSeconds: dwell, metrics: metrics))
+                }
+                return
+            }
+            interactHoldStartTime = nil
+
+            if villager.hasArrived, dist > declineDistance, zoneEntryTime != nil {
+                let metrics = currentZoneMetrics(zoneRadius: declineDistance)
+                let dwell = zoneDwellSeconds(at: currentTime)
+                retire(villager)
+                armedVillager = nil
+                zoneEntryTime = nil
+                onLiveDecisionResolved?((engaged: false, zoneDwellSeconds: dwell, metrics: metrics))
+            }
+        }
+    }
+
+    private func isOpposite(_ a: Direction, _ b: Direction) -> Bool {
+        (a == .down && b == .up) || (a == .up && b == .down)
+            || (a == .left && b == .right) || (a == .right && b == .left)
+    }
+
+    /// SCHEMA §1's three observed zone quantities, for both halves of §8.3 —
+    /// the social branch measures them against the decline radius, and is
+    /// otherwise identical.
+    ///
+    /// `idleMs` is "ms **stationary** inside the scenario zone". The social
+    /// branch used to compute its own, from total elapsed time in the zone,
+    /// which is a different quantity: a player who paced around the villager
+    /// for four seconds without ever standing still was logged as four
+    /// seconds idle.
+    private func currentZoneMetrics(zoneRadius: CGFloat) -> (approachFrac: Double, backtracks: Int, idleMs: Int) {
+        let approach = max(0.0, min(1.0, Double(1.0 - (zoneMinDistance / zoneRadius))))
+        return (approachFrac: approach, backtracks: zoneBacktrackCount, idleMs: Int(zoneIdleDuration * 1000))
+    }
+
+    /// SPEC §8.3's hesitation — how long the player has been inside the armed
+    /// zone. 0 if they somehow resolved without entering it.
+    private func zoneDwellSeconds(at currentTime: TimeInterval) -> TimeInterval {
+        guard let entry = zoneEntryTime else { return 0.0 }
+        return max(0.0, currentTime - entry)
+    }
+
+    /// Moves a resolved decision node out of the live world and fades it,
+    /// rather than deleting it under the player's eyes (SPEC §8.3).
+    private func retire(_ node: SKNode) {
+        guard let layer = retiredDecisionLayer else {
+            node.removeFromParent()
+            return
+        }
+        node.removeFromParent()
+        layer.addChild(node)
+        node.run(.sequence([.fadeOut(withDuration: 0.6), .removeFromParent()]))
     }
 
     private func updateEyeProximity(currentTime: TimeInterval) {
@@ -378,17 +535,6 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
         }
     }
 
-    // MARK: - Scenario Metrics Extraction (SCHEMA §1, §7.1)
-
-    public func currentScenarioMetrics() -> (approachFrac: Double, backtracks: Int, idleMs: Int) {
-        guard let trigger = activeTrigger else {
-            return (approachFrac: 0.5, backtracks: 0, idleMs: 0)
-        }
-        let approach = max(0.0, min(1.0, Double(1.0 - (zoneMinDistance / trigger.radius))))
-        let idle = Int(zoneIdleDuration * 1000)
-        return (approachFrac: approach, backtracks: zoneBacktrackCount, idleMs: idle)
-    }
-
     // MARK: - In-Village Events (SPEC §6)
 
     /// §6.2 Predictive Shadow
@@ -406,5 +552,87 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
     /// §6.3 The Eye
     public func triggerEye(duration: TimeInterval = 3.0, onComplete: (() -> Void)? = nil) {
         eyeNode.flash(duration: duration, onComplete: onComplete)
+    }
+
+    /// SPEC §8.3 — arms exactly one decision at a time. Removes whatever was
+    /// previously armed first (should never happen in practice, since
+    /// VillageCoordinator only arms the next slot after the current one
+    /// resolves, but this keeps the invariant true even under a
+    /// double-call).
+    public func armDecision(_ decision: LiveDecision, at location: DecisionLocation) {
+        if let previous = armedThreshold { retire(previous) }
+        armedThreshold = nil
+        if let previous = armedVillager { retire(previous) }
+        armedVillager = nil
+        isInsideArmedZone = false
+        isInteractHeld = false
+        interactHoldStartTime = nil
+        zoneEntryTime = nil
+
+        if decision.isSpatial {
+            let node = ThresholdNode(decision: decision)
+            node.position = location.position
+            worldNode.addChild(node)
+            armedThreshold = node
+        } else {
+            let node = WaitingVillagerNode(decision: decision, id: "social_\(location.id)")
+            let placement = villagerPlacement(for: location.position)
+            worldNode.addChild(node)
+            node.walkIn(to: placement.stand, from: placement.origin)
+            armedVillager = node
+        }
+    }
+
+    /// Where a waiting villager stands, and where it walks in from.
+    ///
+    /// Both used to be unchecked: the villager was placed on the decision
+    /// anchor and walked in from a random point up to ~85pt away, so it could
+    /// materialise inside a cottage or on the pond and walk out through the
+    /// geometry. Six of the thirty authored anchors are features rather than
+    /// floor — a door, a pier, a cellar lip. A threshold does not care (it is
+    /// a zone drawn on the ground, and the player crosses near it) but a
+    /// villager is a body, so it stands on the nearest walkable ground to the
+    /// anchor and approaches along a line that is walkable end to end.
+    ///
+    /// The approach ring is sampled from a random start angle, so the
+    /// direction the villager comes from stays unpredictable, and shrinks if
+    /// the spot is hemmed in.
+    func villagerPlacement(for anchor: CGPoint) -> (origin: CGPoint, stand: CGPoint) {
+        guard let map = mapData else { return (anchor, anchor) }
+        let stand = nearestWalkablePoint(to: anchor, in: map)
+        let startAngle = CGFloat.random(in: 0..<(2 * .pi))
+        for distance in [CGFloat(80), 56, 34] {
+            for i in 0..<12 {
+                let angle = startAngle + CGFloat(i) * (.pi / 6.0)
+                let candidate = CGPoint(x: stand.x + cos(angle) * distance,
+                                        y: stand.y + sin(angle) * distance)
+                if map.isWalkable(worldPoint: candidate),
+                   map.isWalkablePath(from: candidate, to: stand) {
+                    return (candidate, stand)
+                }
+            }
+        }
+        // Hemmed in on every side: stand there without a walk-in rather than
+        // walking through a wall to arrive.
+        return (stand, stand)
+    }
+
+    private func nearestWalkablePoint(to anchor: CGPoint, in map: VillageMapData) -> CGPoint {
+        if map.isWalkable(worldPoint: anchor) { return anchor }
+        let tile = VillageMapBuilder.tileSize
+        var best: (point: CGPoint, distance: CGFloat)?
+        for step in 1...3 {
+            let radius = tile * CGFloat(step)
+            for i in 0..<16 {
+                let angle = CGFloat(i) * (.pi / 8.0)
+                let candidate = CGPoint(x: anchor.x + cos(angle) * radius,
+                                        y: anchor.y + sin(angle) * radius)
+                guard map.isWalkable(worldPoint: candidate) else { continue }
+                let d = hypot(candidate.x - anchor.x, candidate.y - anchor.y)
+                if best == nil || d < best!.distance { best = (candidate, d) }
+            }
+            if let found = best { return found.point }
+        }
+        return anchor
     }
 }

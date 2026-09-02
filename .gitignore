@@ -1,5 +1,6 @@
 # Python (priors-research/)
 .venv/
+.venv
 __pycache__/
 *.pyc
 priors-research/out/
@@ -20,3 +21,6 @@ AudioExports/
 
 # Local git worktrees (subagent-driven-development scratch)
 .worktrees/
+
+# subagent-driven-development scratch (ledger, briefs, review packages)
+.superpowers/

@@ -95,7 +95,7 @@ struct BandLadderTests {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/gading/Documents/Priors/Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' test -only-testing:PriorsTests/BandLadderTests 2>&1 | tail -40`
+Run: `cd Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' test -only-testing:PriorsTests/BandLadderTests 2>&1 | tail -40`
 Expected: FAIL — `BandLadder` does not exist yet (build error).
 
 - [ ] **Step 3: Write the implementation**
@@ -216,7 +216,7 @@ public enum BandLadder {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/gading/Documents/Priors/Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' test -only-testing:PriorsTests/BandLadderTests 2>&1 | tail -40`
+Run: `cd Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' test -only-testing:PriorsTests/BandLadderTests 2>&1 | tail -40`
 Expected: PASS, all 5 tests.
 
 - [ ] **Step 5: Commit**
@@ -399,7 +399,7 @@ git commit -m "Port rt_base prior center (1500ms) to Swift, matching regenerated
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/gading/Documents/Priors/Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' test -only-testing:PriorsTests/PriorsTests/liveDecisionFormatting 2>&1 | tail -40`
+Run: `cd Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' test -only-testing:PriorsTests/PriorsTests/liveDecisionFormatting 2>&1 | tail -40`
 Expected: FAIL — `LiveDecision` does not exist.
 
 - [ ] **Step 3: Delete `ScenarioDialogView.swift`**
@@ -450,7 +450,7 @@ public struct LiveDecision: Sendable {
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `cd /Users/gading/Documents/Priors/Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' test -only-testing:PriorsTests/PriorsTests/liveDecisionFormatting 2>&1 | tail -40`
+Run: `cd Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' test -only-testing:PriorsTests/PriorsTests/liveDecisionFormatting 2>&1 | tail -40`
 Expected: PASS.
 
 **Note for the implementer:** this task leaves `VillageCoordinator.swift` and `VillageContainerView.swift` referencing the now-deleted `ScenarioPromptData`/`ScenarioDialogView` — the project will not build again until Tasks 9-11 finish rewiring them. That is expected; do not try to patch those references here. If you need an intermediate green build, stub `VillageCoordinator`'s references to the old names with `LiveDecision` equivalents inline as you go, but the full app target will not compile cleanly until Task 11 is done. `PriorsEngineTests` and `PriorsTests`-level unit tests that don't touch the view layer will still run.
@@ -508,7 +508,7 @@ struct VillageMapBuilderTests {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/gading/Documents/Priors/Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' test -only-testing:PriorsTests/VillageMapBuilderTests 2>&1 | tail -40`
+Run: `cd Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' test -only-testing:PriorsTests/VillageMapBuilderTests 2>&1 | tail -40`
 Expected: FAIL — `decisionLocations` does not exist on the returned tuple yet.
 
 - [ ] **Step 3: Add `DecisionLocation` and change `buildScenarioTriggers`**
@@ -597,7 +597,7 @@ Note: `ScenarioTriggerNode` the class (physics-body-carrying `SKNode` subclass) 
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/gading/Documents/Priors/Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' test -only-testing:PriorsTests/VillageMapBuilderTests 2>&1 | tail -40`
+Run: `cd Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' test -only-testing:PriorsTests/VillageMapBuilderTests 2>&1 | tail -40`
 Expected: PASS, both tests. (The exact 19/11 split assertion is the load-bearing regression check — if a future edit to the config table breaks the count, this test catches it immediately.)
 
 **Note for the implementer:** `VillageScene.swift` still refers to the old `triggers: [ScenarioTriggerNode]` field and `ScenarioTriggerNode` type at this point (lines 24, 111-115 per the pre-existing file) — that will not compile until Task 9. Confirm this task's own new test target compiles and passes in isolation; the whole-scheme build stays red until Task 9.
@@ -702,7 +702,7 @@ public final class ThresholdNode: SKNode {
 
 - [ ] **Step 2: Confirm the file compiles in isolation**
 
-Run: `cd /Users/gading/Documents/Priors/Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' build 2>&1 | tail -60`
+Run: `cd Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' build 2>&1 | tail -60`
 Expected: this specific file compiles without errors (the overall build may still fail on other files not yet updated — Tasks 9-11 finish the rewiring. If the build error output at this point is specifically about `ThresholdNode.swift`, fix it before proceeding; if it is about `VillageScene.swift`/`VillageCoordinator.swift` referencing the old, now-removed `ScenarioTriggerNode` type, that's expected and resolved in Task 9).
 
 - [ ] **Step 3: Commit**
@@ -721,7 +721,7 @@ git commit -m "Add ThresholdNode: spatial in-world decision rendering (SPEC §8.
 
 **Interfaces:**
 - Consumes: `LiveDecision`, `VillageAssets` (existing, for villager textures/variants — same API `NPCNode` already uses: `VillageAssets.shared.npcIdleTexture(variant:)`, `.villagerVariantCount`).
-- Produces: `WaitingVillagerNode(decision: LiveDecision, id: String)`, `.approachRadius: CGFloat = 40.0` (how close the player must be, facing the villager, for Interact to register), `.walkIn(to: CGPoint, from: CGPoint)` (scripted approach, mirrors `ShadowNode.walkToward`), `.isPlayerFacingAndClose(playerPosition: CGPoint, playerDirection: Direction) -> Bool`.
+- Produces: `WaitingVillagerNode(decision: LiveDecision, id: String)`, `.approachRadius: CGFloat = 40.0` (how close the player must be for Interact to register), `.walkIn(to: CGPoint, from: CGPoint)` (scripted approach, mirrors `ShadowNode.walkToward`), `.isPlayerClose(playerPosition: CGPoint) -> Bool`.
 
 **Why no gaze/attention:** SPEC.md §8.3 (folded from draft §5.2) forbids villager attention that resembles watching, because it confounds the eye manipulation (SPEC §6.3). This node faces a fixed direction once it stops (toward wherever it walked in from, i.e. away from open space, not toward the player) and never turns to track the player — deliberately, so it cannot be mistaken for an attention cue.
 
@@ -829,7 +829,7 @@ public final class WaitingVillagerNode: SKNode {
 
 - [ ] **Step 2: Confirm the file compiles in isolation**
 
-Run: `cd /Users/gading/Documents/Priors/Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' build 2>&1 | tail -60`
+Run: `cd Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' build 2>&1 | tail -60`
 Expected: no new errors attributable to `WaitingVillagerNode.swift` (other files still red until Task 9-11, as in Task 6).
 
 - [ ] **Step 3: Commit**
@@ -933,7 +933,7 @@ git commit -m "Add WaitingVillagerNode: social in-world decision rendering (SPEC
 
 - [ ] **Step 2: Confirm the file compiles in isolation**
 
-Run: `cd /Users/gading/Documents/Priors/Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' build 2>&1 | tail -60`
+Run: `cd Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' build 2>&1 | tail -60`
 Expected: no new errors attributable to `VirtualControls.swift` itself. `VillageContainerView.swift` will now fail to build because it still passes `onInteract:` — expected, fixed in Task 11.
 
 - [ ] **Step 3: Commit**
@@ -952,7 +952,7 @@ git commit -m "VirtualControls: interact button becomes press-and-hold, not tap"
 
 **Interfaces:**
 - Consumes: `DecisionLocation`, `ThresholdNode`, `WaitingVillagerNode`, `LiveDecision` from Tasks 4-7.
-- Produces: `VillageScene.armDecision(_ decision: LiveDecision, at location: DecisionLocation)`, `VillageScene.setInteractPressed(_ pressed: Bool)`, `VillageScene.onLiveDecisionResolved: ((engaged: Bool, metrics: (approachFrac: Double, backtracks: Int, idleMs: Int)) -> Void)?`, `VillageScene.decisionLocations: [DecisionLocation]` (exposed read-only for `VillageCoordinator` to pick from), `VillageScene.canInteractNow: Bool` (drives the button's `canInteract` — true only near a live social decision, ready to hold).
+- Produces: `VillageScene.armDecision(_ decision: LiveDecision, at location: DecisionLocation)`, `VillageScene.setInteractPressed(_ pressed: Bool)`, `VillageScene.onLiveDecisionResolved: (((engaged: Bool, metrics: (approachFrac: Double, backtracks: Int, idleMs: Int))) -> Void)?`, `VillageScene.decisionLocations: [DecisionLocation]` (exposed read-only for `VillageCoordinator` to pick from), `VillageScene.canInteractNow: Bool` (drives the button's `canInteract` — true only near a live social decision, ready to hold).
 
 **Mechanics:**
 - Spatial: reuses the existing zone-dwell tracking (`zoneMinDistance`, `zoneIdleDuration`, `zoneBacktrackCount`) against the armed `ThresholdNode`'s `radius`/`commitRadius`. Resolution fires automatically the instant the player's distance from the node's centre exceeds `radius` again, having been inside it — `engaged = (zoneMinDistance <= node.commitRadius)`.
@@ -989,7 +989,7 @@ git commit -m "VirtualControls: interact button becomes press-and-hold, not tap"
     // decisions — the world resolves itself.
     private var armedThreshold: ThresholdNode?
     private var armedVillager: WaitingVillagerNode?
-    public var onLiveDecisionResolved: (((engaged: Bool, metrics: (approachFrac: Double, backtracks: Int, idleMs: Int)) -> Void))?
+    public var onLiveDecisionResolved: (((engaged: Bool, metrics: (approachFrac: Double, backtracks: Int, idleMs: Int))) -> Void)?
 
     private var isInsideArmedZone: Bool = false
     private var isInteractHeld: Bool = false
@@ -1165,7 +1165,7 @@ git commit -m "VirtualControls: interact button becomes press-and-hold, not tap"
 
 - [ ] **Step 4: Confirm the file compiles in isolation**
 
-Run: `cd /Users/gading/Documents/Priors/Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' build 2>&1 | tail -80`
+Run: `cd Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' build 2>&1 | tail -80`
 Expected: `VillageScene.swift` itself compiles. `VillageCoordinator.swift` and `VillageContainerView.swift` still reference the old API (`activeTrigger`, `onActiveTriggerChanged`, `currentScenarioMetrics()`) — expected, fixed in Tasks 10-11.
 
 - [ ] **Step 5: Commit**
@@ -1403,12 +1403,12 @@ Note: `canInteract` needs to update live as the player moves, but SwiftUI's `@St
 
 - [ ] **Step 4: Build and fix remaining references**
 
-Run: `cd /Users/gading/Documents/Priors/Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' build 2>&1 | tail -100`
+Run: `cd Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' build 2>&1 | tail -100`
 Expected: build succeeds. If there are remaining compile errors referencing `activePrompt`, `isPresentingScenario`, `activeTrigger`, `onActiveTriggerChanged`, `currentScenarioMetrics`, or `ScenarioPromptData` anywhere (e.g. `VillageCoordinator`'s own leftover reference at the old `activePrompt` declaration, or any other file this plan's grep didn't catch), remove/replace them following the same pattern as above — those are the exact names this task's rewiring is meant to retire.
 
 - [ ] **Step 5: Run the full app test suite**
 
-Run: `cd /Users/gading/Documents/Priors/Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' test 2>&1 | tail -100`
+Run: `cd Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' test 2>&1 | tail -100`
 Expected: all unit tests pass. UI tests that specifically exercised the old modal (`scenario_engage_button`/`scenario_decline_button` — confirmed in this plan's research that no UI test currently references those identifiers, so none should need rewriting; if one does turn up, update it to drive the new press-and-hold/threshold-crossing flow instead of tapping a button).
 
 - [ ] **Step 6: Commit**
@@ -1426,7 +1426,7 @@ git commit -m "VillageCoordinator/VillageContainerView: arm/resolve loop replace
 
 - [ ] **Step 1: Launch the village phase directly and capture a screenshot**
 
-Run: `cd /Users/gading/Documents/Priors/Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' test -only-testing:PriorsUITests/VillageAppearanceTests 2>&1 | tail -40`
+Run: `cd Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' test -only-testing:PriorsUITests/VillageAppearanceTests 2>&1 | tail -40`
 
 - [ ] **Step 2: Extract the attachment**
 
@@ -1477,7 +1477,7 @@ If anything looks wrong, fix it before proceeding — do not report Task 10 as v
 
 - [ ] **Step 3: Build and run the full app test suite**
 
-Run: `cd /Users/gading/Documents/Priors/Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' test 2>&1 | tail -100`
+Run: `cd Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' test 2>&1 | tail -100`
 Expected: all tests pass. If any test constructed `VillageCoordinator` and asserted specifically on `Posterior`-typed behaviour (check `PriorsTests.swift`'s coordinator-flow test, the one asserting `record.finalPosterior.thetaEMean > 0` around line 230), confirm it still passes — `BehaviouralPosterior.snapshot()` produces the same `PosteriorSnapshot` shape, so this should need no test changes, but verify rather than assume.
 
 - [ ] **Step 4: Commit**
@@ -1499,7 +1499,7 @@ git commit -m "VillageCoordinator: read BehaviouralPosterior now that rt_ms is r
 ```bash
 cd /Users/gading/Documents/Priors/PriorsEngine && swift test 2>&1 | tail -10
 cd /Users/gading/Documents/Priors/priors-research && .venv/bin/python -m pytest tests/ -q 2>&1 | tail -10
-cd /Users/gading/Documents/Priors/Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' test 2>&1 | tail -30
+cd Priors/Priors && xcodebuild -project Priors.xcodeproj -scheme Priors -destination 'platform=iOS Simulator,name=iPhone 17' test 2>&1 | tail -30
 ```
 Expected: all three green, with the actual test counts recorded (they will have grown from 78/165/33+9 by however many this plan's tasks added — `BandLadderTests`, `VillageMapBuilderTests`, and the rewritten `liveDecisionFormatting`/coordinator tests).
 

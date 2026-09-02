@@ -112,7 +112,7 @@ struct PriorsTests {
 
         // SPEC §8: At least 30% of walkable area is empty dead space
         #expect(result.mapData.deadSpaceFraction >= 0.30)
-        #expect(result.triggers.count == 30)
+        #expect(result.decisionLocations.count == 30)
         #expect(result.eyeNode.name == "the_eye")
 
         // Check region lookup
@@ -189,7 +189,14 @@ struct PriorsTests {
         #expect(coordinator.decisions.isEmpty)
         #expect(coordinator.lanternCount == 3)
 
+        // The arm/resolve loop needs a presented scene: armNextDecision reads
+        // playerNode and decisionLocations, which only exist after didMove.
         let scene = VillageScene(size: CGSize(width: 800, height: 600))
+        let skView = SKView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
+        skView.presentScene(scene)
+        #expect(scene.decisionLocations.count == 30)
+        #expect(scene.playerNode != nil)
+
         let sampler = MovementSampler()
 
         var completedRecord: SessionRecord?
@@ -197,30 +204,77 @@ struct PriorsTests {
             completedRecord = record
         }
 
-        // Run full 30-decision loop
-        for slot in 0..<30 {
-            coordinator.presentCurrentScenario(scene: scene)
-            #expect(coordinator.isPresentingScenario == true)
-            #expect(coordinator.activePrompt != nil)
+        // SPEC §8.3 — exactly one decision live at a time: arm slot 0 here,
+        // and each resolution arms the next slot itself.
+        coordinator.armNextDecision(scene: scene)
 
-            let prompt = coordinator.activePrompt!
-            #expect(prompt.slot == slot)
-            #expect(!prompt.title.isEmpty)
+        // SPEC §6.2 — the shadow spawns at ARM time and its prediction must be
+        // scored against the slot it predicted. Recomputed here from the
+        // posterior as it stood when that slot was armed, which is exactly the
+        // posterior the coordinator used.
+        let shadowSlots: Set<Int> = [16, 20, 24, 28]
+        var expectedShadowCorrect: [Bool] = []
+
+        for slot in 0..<30 {
+            #expect(coordinator.currentSlot == slot)
+            let decision = try #require(coordinator.liveDecision)
+            #expect(!decision.phrase.isEmpty)
+            #expect(decision.design.trait == Scenarios.traitSchedule[slot])
+            // The armed location's trait must match the design's trait, which
+            // is what routes spatial vs. social presentation.
+            #expect(decision.isSpatial == (decision.design.trait == .thetaE))
+
+            // Regression guard: the logged price must be the price that was
+            // actually armed. The old handleChoice re-ran selectDesign to
+            // recover the design, and its random +/-0.02 jitter (SPEC §5.4)
+            // meant the record could describe a price the player never saw --
+            // which then fed posterior.update, predictedEngage,
+            // updateLanternCount and selectionState's repeatSourcePrice.
+            let armedPrice = decision.design.price
+            let armedPredictedEngage = coordinator.posterior.predictedEngage(
+                price: armedPrice, trait: decision.design.trait
+            )
 
             let engaged = (slot % 2 == 0)
-            coordinator.handleChoice(
+            if shadowSlots.contains(slot) {
+                let predicted = EventTriggers.shadowTarget(
+                    posterior: coordinator.posterior,
+                    nextDesign: decision.design
+                ).willEngage
+                expectedShadowCorrect.append(predicted == engaged)
+            }
+            // SPEC §8.3 — the in-zone dwell the scene measured is what
+            // becomes `rt_ms`; the coordinator no longer times anything of
+            // its own.
+            coordinator.resolveLiveDecision(
                 engaged: engaged,
+                zoneDwellSeconds: 1.4,
                 metrics: (approachFrac: 0.65, backtracks: 1, idleMs: 400),
                 movementSampler: sampler,
                 scene: scene
             )
 
-            #expect(coordinator.isPresentingScenario == false)
             #expect(coordinator.currentSlot == slot + 1)
             #expect(coordinator.decisions.count == slot + 1)
+            #expect(coordinator.decisions[slot].price == armedPrice)
+            #expect(coordinator.decisions[slot].engaged == engaged)
+            #expect(coordinator.decisions[slot].rtMs == 1400)
+            // SCHEMA §1's stated invariant, exactly.
+            let logged = coordinator.decisions[slot]
+            #expect(abs((logged.tDecided - logged.tPresented) - Double(logged.rtMs) / 1000.0) < 1e-9)
+            // SCHEMA §1 — the posterior snapshot is the one captured when the
+            // slot was armed, before this choice was folded in.
+            #expect(logged.predictedEngage == armedPredictedEngage)
+            // Scored on resolution of the predicted slot, so the count tracks
+            // how many shadow slots have resolved -- not how many shadows have
+            // finished their 10s walk.
+            #expect(coordinator.shadowCorrect.count == shadowSlots.filter { $0 <= slot }.count)
         }
 
         #expect(coordinator.currentSlot == 30)
+        #expect(coordinator.liveDecision == nil)
+        #expect(coordinator.shadowAppearances.count == 4)
+        #expect(coordinator.shadowCorrect == expectedShadowCorrect)
         #expect(completedRecord != nil)
         guard let record = completedRecord else { return }
 
@@ -235,17 +289,23 @@ struct PriorsTests {
         #expect(metrics.rtRatio >= 0.0)
     }
 
-    @Test func scenarioPromptFormatting() async throws {
+    @Test func liveDecisionFormatting() async throws {
         let post = Posterior()
         let state = SelectionState()
 
         for slot in 0..<6 {
             let design = ADOSelector.selectDesign(posterior: post, slot: slot, state: state)
-            let prompt = ScenarioPromptData(design: design)
-            #expect(!prompt.title.isEmpty)
-            #expect(!prompt.bodyText.isEmpty)
-            #expect(!prompt.engageButtonTitle.isEmpty)
-            #expect(!prompt.declineButtonTitle.isEmpty)
+            let decision = LiveDecision(design: design)
+            #expect(!decision.phrase.isEmpty)
+            #expect(!decision.phrase.contains("%"))
+            #expect(decision.band >= 1 && decision.band <= 7)
+            #expect(decision.visualIntensity >= 0.0 && decision.visualIntensity <= 1.0)
+            let expectedSpatial: Bool
+            switch design.template {
+            case .path, .detour, .trade: expectedSpatial = true
+            case .error, .credit, .give: expectedSpatial = false
+            }
+            #expect(decision.isSpatial == expectedSpatial)
         }
     }
 

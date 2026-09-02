@@ -15,11 +15,14 @@ public struct VirtualControlsView: View {
     /// interact button looked identical whether or not it was live.
     public var canInteract: Bool
     public var onVectorChange: ((CGVector) -> Void)?
-    public var onInteract: (() -> Void)?
+    /// Fires `true` on press-down, `false` on release — SPEC §8.3's social
+    /// mechanic needs hold duration, which a single tap action can't express.
+    public var onInteractPressChanged: ((Bool) -> Void)?
 
     @State private var knobOffset: CGSize = .zero
     @State private var isDragging: Bool = false
     @State private var pulse: Bool = false
+    @State private var isPressed: Bool = false
 
     private let baseRadius: CGFloat = 56.0
     private let knobRadius: CGFloat = 22.0
@@ -28,12 +31,12 @@ public struct VirtualControlsView: View {
         lanternCount: Int = 0,
         canInteract: Bool = false,
         onVectorChange: ((CGVector) -> Void)? = nil,
-        onInteract: (() -> Void)? = nil
+        onInteractPressChanged: ((Bool) -> Void)? = nil
     ) {
         self.lanternCount = lanternCount
         self.canInteract = canInteract
         self.onVectorChange = onVectorChange
-        self.onInteract = onInteract
+        self.onInteractPressChanged = onInteractPressChanged
     }
 
     public var body: some View {
@@ -118,29 +121,40 @@ public struct VirtualControlsView: View {
         )
     }
 
-    /// Dimmed and inert away from a scenario zone; solid and gently pulsing
-    /// inside one. No arrow, no marker, no objective pointer — SPEC §8 keeps the
-    /// HUD to the lantern count, so the cue is on the button itself.
+    /// Dimmed and inert away from a live decision; solid and gently pulsing
+    /// once one is armed. Press-and-hold, not tap — SPEC §8.3's social
+    /// mechanic resolves on hold duration, tracked by the caller.
     private var interactButton: some View {
-        Button(action: { if canInteract { onInteract?() } }) {
-            ZStack {
-                Circle()
-                    .strokeBorder(Color.white.opacity(canInteract ? 0.85 : 0.2), lineWidth: 2)
-                    .background(Circle().fill(Color.black.opacity(canInteract ? 0.5 : 0.25)))
-                    .frame(width: 68, height: 68)
-                    .scaleEffect(canInteract && pulse ? 1.06 : 1.0)
+        ZStack {
+            Circle()
+                .strokeBorder(Color.white.opacity(canInteract ? 0.85 : 0.2), lineWidth: 2)
+                .background(Circle().fill(Color.black.opacity(canInteract ? 0.5 : 0.25)))
+                .frame(width: 68, height: 68)
+                .scaleEffect(canInteract && pulse ? 1.06 : 1.0)
 
-                Text("Interact")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundColor(.white.opacity(canInteract ? 1.0 : 0.3))
-            }
-            .contentShape(Circle())
+            Text("Interact")
+                .font(.system(size: 14, weight: .regular))
+                .foregroundColor(.white.opacity(canInteract ? 1.0 : 0.3))
         }
-        .buttonStyle(.plain)
-        .disabled(!canInteract)
+        .contentShape(Circle())
+        .opacity(canInteract ? 1.0 : 0.6)
         .animation(.easeInOut(duration: 0.25), value: canInteract)
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    guard canInteract, !isPressed else { return }
+                    isPressed = true
+                    onInteractPressChanged?(true)
+                }
+                .onEnded { _ in
+                    guard isPressed else { return }
+                    isPressed = false
+                    onInteractPressChanged?(false)
+                }
+        )
         .onChange(of: canInteract) { _, live in
             pulse = false
+            if isPressed { isPressed = false; onInteractPressChanged?(false) }
             guard live else { return }
             withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
                 pulse = true
