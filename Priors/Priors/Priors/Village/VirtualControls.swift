@@ -23,6 +23,7 @@ public struct VirtualControlsView: View {
     @State private var isDragging: Bool = false
     @State private var pulse: Bool = false
     @State private var isPressed: Bool = false
+    @State private var holdProgress: Double = 0.0
 
     private let baseRadius: CGFloat = 56.0
     private let knobRadius: CGFloat = 22.0
@@ -44,13 +45,7 @@ public struct VirtualControlsView: View {
             // Top HUD: Lantern count only (SPEC §8 — No timer, no minimap, no objective marker)
             VStack {
                 HStack {
-                    Text("Lanterns: \(lanternCount)")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 6)
-                        .background(Color.black.opacity(0.65))
-                        .clipShape(Capsule())
+                    lanternHUD
                     Spacer()
                 }
                 .padding(.top, 16)
@@ -77,6 +72,30 @@ public struct VirtualControlsView: View {
         }
     }
 
+    private var lanternHUD: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "flame.fill")
+                .foregroundColor(Color(red: 232 / 255.0, green: 141 / 255.0, blue: 56 / 255.0))
+                .font(.system(size: 13, weight: .semibold))
+                .shadow(color: Color(red: 232 / 255.0, green: 141 / 255.0, blue: 56 / 255.0).opacity(0.8), radius: 4)
+
+            Text("Lanterns: \(lanternCount)")
+                .font(.system(size: 14, weight: .medium, design: .monospaced))
+                .foregroundColor(.white)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(
+            Capsule()
+                .fill(Color(white: 0.08, opacity: 0.85))
+                .overlay(
+                    Capsule()
+                        .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                )
+        )
+        .shadow(color: Color.black.opacity(0.4), radius: 8, x: 0, y: 3)
+    }
+
     private var thumbstick: some View {
         ZStack {
             // Outer Ring
@@ -88,6 +107,10 @@ public struct VirtualControlsView: View {
             // Inner Knob
             Circle()
                 .fill(Color.white.opacity(0.65))
+                .overlay(
+                    Circle()
+                        .strokeBorder(Color.white.opacity(0.8), lineWidth: 1)
+                )
                 .frame(width: knobRadius * 2, height: knobRadius * 2)
                 .offset(knobOffset)
         }
@@ -115,7 +138,9 @@ public struct VirtualControlsView: View {
                 }
                 .onEnded { _ in
                     isDragging = false
-                    knobOffset = .zero
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                        knobOffset = .zero
+                    }
                     onVectorChange?(.zero)
                 }
         )
@@ -126,16 +151,30 @@ public struct VirtualControlsView: View {
     /// mechanic resolves on hold duration, tracked by the caller.
     private var interactButton: some View {
         ZStack {
+            // Outer Static Border
             Circle()
                 .strokeBorder(Color.white.opacity(canInteract ? 0.85 : 0.2), lineWidth: 2)
                 .background(Circle().fill(Color.black.opacity(canInteract ? 0.5 : 0.25)))
                 .frame(width: 68, height: 68)
-                .scaleEffect(canInteract && pulse ? 1.06 : 1.0)
+
+            // Radial Hold Progress Ring (0.6s fill)
+            if canInteract && holdProgress > 0.0 {
+                Circle()
+                    .trim(from: 0.0, to: holdProgress)
+                    .stroke(
+                        Color(red: 232 / 255.0, green: 141 / 255.0, blue: 56 / 255.0),
+                        style: StrokeStyle(lineWidth: 3.5, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+                    .frame(width: 72, height: 72)
+                    .shadow(color: Color(red: 232 / 255.0, green: 141 / 255.0, blue: 56 / 255.0).opacity(0.8), radius: 4)
+            }
 
             Text("Interact")
                 .font(.system(size: 14, weight: .regular))
                 .foregroundColor(.white.opacity(canInteract ? 1.0 : 0.3))
         }
+        .scaleEffect(isPressed ? 0.94 : (canInteract && pulse ? 1.05 : 1.0))
         .contentShape(Circle())
         .opacity(canInteract ? 1.0 : 0.6)
         .animation(.easeInOut(duration: 0.25), value: canInteract)
@@ -152,9 +191,24 @@ public struct VirtualControlsView: View {
                     onInteractPressChanged?(false)
                 }
         )
+        .onChange(of: isPressed) { _, pressed in
+            if pressed {
+                holdProgress = 0.0
+                withAnimation(.linear(duration: 0.6)) {
+                    holdProgress = 1.0
+                }
+            } else {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    holdProgress = 0.0
+                }
+            }
+        }
         .onChange(of: canInteract) { _, live in
             pulse = false
-            if isPressed { isPressed = false; onInteractPressChanged?(false) }
+            if isPressed {
+                isPressed = false
+                onInteractPressChanged?(false)
+            }
             guard live else { return }
             withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
                 pulse = true

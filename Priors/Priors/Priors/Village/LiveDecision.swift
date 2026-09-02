@@ -60,6 +60,7 @@ public struct LiveDecision: Sendable {
     public let phrase: String
     public let visualIntensity: Double
     public let priorSnapshot: PriorSnapshot
+    public let narrative: DilemmaNarrative?
 
     /// SPEC §3.1/§3.2 — spatial templates are a threshold you cross; social
     /// templates are a villager who waits. The two sets are exactly the two
@@ -67,12 +68,17 @@ public struct LiveDecision: Sendable {
     /// design axis.
     public let isSpatial: Bool
 
-    public init(design: Design, priorSnapshot: PriorSnapshot = .unrecorded) {
+    public init(
+        design: Design,
+        priorSnapshot: PriorSnapshot = .unrecorded,
+        narrative: DilemmaNarrative? = nil
+    ) {
         self.design = design
         self.band = BandLadder.band(for: design.price, template: design.template)
-        self.phrase = BandLadder.phrase(template: design.template, band: band)
+        self.phrase = narrative?.bandPhrase ?? BandLadder.phrase(template: design.template, band: band)
         self.visualIntensity = BandLadder.visualIntensity(band: band)
         self.priorSnapshot = priorSnapshot
+        self.narrative = narrative
         switch design.template {
         case .path, .detour, .trade: self.isSpatial = true
         case .error, .credit, .give: self.isSpatial = false
@@ -81,7 +87,11 @@ public struct LiveDecision: Sendable {
 
     /// Captures the posterior as it stands right now — call this at ARM time,
     /// never at resolution.
-    public init(design: Design, capturedFrom posterior: BehaviouralPosterior) {
+    public init(
+        design: Design,
+        capturedFrom posterior: BehaviouralPosterior,
+        narrative: DilemmaNarrative? = nil
+    ) {
         let (meanE, sdE) = posterior.meanSD(.thetaE)
         let (meanI, sdI) = posterior.meanSD(.thetaI)
         self.init(
@@ -92,7 +102,8 @@ public struct LiveDecision: Sendable {
                 meanI: meanI,
                 sdI: sdI,
                 predictedEngage: posterior.predictedEngage(price: design.price, trait: design.trait)
-            )
+            ),
+            narrative: narrative
         )
     }
 }

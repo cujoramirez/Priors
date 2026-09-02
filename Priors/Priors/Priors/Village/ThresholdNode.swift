@@ -29,6 +29,7 @@ public final class ThresholdNode: SKNode {
 
     private let darknessOverlay: SKShapeNode
     private let phraseLabel: SKLabelNode
+    private let textPill: SKShapeNode
 
     public init(decision: LiveDecision) {
         self.decision = decision
@@ -42,7 +43,7 @@ public final class ThresholdNode: SKNode {
 
         phraseLabel = SKLabelNode(fontNamed: "Menlo")
         phraseLabel.fontSize = 12
-        phraseLabel.fontColor = SKColor(white: 0.9, alpha: 0.9)
+        phraseLabel.fontColor = SKColor(white: 0.95, alpha: 0.95)
         phraseLabel.position = CGPoint(x: 0, y: 44)
         phraseLabel.numberOfLines = 2
         phraseLabel.preferredMaxLayoutWidth = 160
@@ -50,11 +51,21 @@ public final class ThresholdNode: SKNode {
         phraseLabel.text = decision.phrase
         phraseLabel.zPosition = 20
 
+        // Translucent dark backing pill for high-contrast readability over tilemaps
+        let pillRect = CGRect(x: -90, y: 34, width: 180, height: 38)
+        textPill = SKShapeNode(rect: pillRect, cornerRadius: 6)
+        textPill.fillColor = SKColor(white: 0.05, alpha: 0.75)
+        textPill.strokeColor = SKColor(white: 1.0, alpha: 0.15)
+        textPill.lineWidth = 1.0
+        textPill.isAntialiased = true
+        textPill.zPosition = 19
+
         super.init()
         self.name = "threshold_live"
         self.zPosition = 3
 
         addChild(darknessOverlay)
+        addChild(textPill)
         addChild(phraseLabel)
         setIntensity(decision.visualIntensity)
     }

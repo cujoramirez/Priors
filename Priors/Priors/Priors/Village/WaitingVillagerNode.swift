@@ -29,6 +29,7 @@ public final class WaitingVillagerNode: SKNode {
 
     private let sprite: SKSpriteNode
     private let phraseLabel: SKLabelNode
+    private let textPill: SKShapeNode
     /// SPEC §8.2's "one matching visual intensity per band" — the social half
     /// of it. The band was reaching the player through the phrase alone here,
     /// while the spatial half had both channels. Same mapping as
@@ -67,7 +68,7 @@ public final class WaitingVillagerNode: SKNode {
 
         phraseLabel = SKLabelNode(fontNamed: "Menlo")
         phraseLabel.fontSize = 12
-        phraseLabel.fontColor = SKColor(white: 0.9, alpha: 0.9)
+        phraseLabel.fontColor = SKColor(white: 0.95, alpha: 0.95)
         phraseLabel.position = CGPoint(x: 0, y: 30)
         phraseLabel.numberOfLines = 2
         phraseLabel.preferredMaxLayoutWidth = 160
@@ -76,10 +77,21 @@ public final class WaitingVillagerNode: SKNode {
         phraseLabel.text = decision.phrase
         phraseLabel.zPosition = 20
 
+        // Translucent dark backing pill for high-contrast readability over tilemaps
+        let pillRect = CGRect(x: -90, y: 20, width: 180, height: 38)
+        textPill = SKShapeNode(rect: pillRect, cornerRadius: 6)
+        textPill.fillColor = SKColor(white: 0.05, alpha: 0.75)
+        textPill.strokeColor = SKColor(white: 1.0, alpha: 0.15)
+        textPill.lineWidth = 1.0
+        textPill.isAntialiased = true
+        textPill.zPosition = 19
+        textPill.alpha = 0.0
+
         super.init()
         self.name = "waiting_villager_\(id)"
         addChild(darknessPool)
         addChild(sprite)
+        addChild(textPill)
         addChild(phraseLabel)
     }
 
@@ -119,6 +131,7 @@ public final class WaitingVillagerNode: SKNode {
         sprite.texture = VillageAssets.shared.npcIdleTexture(variant: variant)
         hasArrived = true
         phraseLabel.run(.fadeAlpha(to: 1.0, duration: 0.4))
+        textPill.run(.fadeAlpha(to: 1.0, duration: 0.4))
         darknessPool.run(.fadeAlpha(to: 1.0, duration: 0.4))
         sprite.run(.colorize(withColorBlendFactor: DecisionIntensityStyle.figureShading(decision.visualIntensity),
                              duration: 0.4))
