@@ -250,14 +250,17 @@ public class VillageScene: SKScene {
 
     /// SPEC §8.1 — palette and light decay on posterior confidence, not on time.
     ///
-    /// The vignette used to run 0.70 → 0.95. That put a 70%-opacity darkness
-    /// over the village on the very first frame, so a game SPEC §1 calls
-    /// "cheerful" opened at night, and the whole five-step schedule then spanned
-    /// 25% of alpha — a change small enough that the decay, which is the only
-    /// signal the model is closing in, was invisible.
+    /// The vignette first ran 0.70 → 0.95 (opened at night, and the whole
+    /// five-step schedule spanned 25% of alpha — a change too small to feel).
+    /// It was then flattened to 0.06 → 0.80, which overcorrected: at 6% there
+    /// is no lantern pool and no framing at all, so the village read as a
+    /// brightly-lit map in full daylight and SPEC §8.1's "warm amber" never
+    /// appeared on screen.
     ///
-    /// It now opens nearly clear and ends genuinely dark, so the arc is the
-    /// thing the player feels.
+    /// It now opens at a golden-hour 0.42 — enough that the lantern carves a
+    /// visible pool out of the light — and ends at 0.95, near-total night.
+    /// Still monotonic, still never fully opaque: the player must always be
+    /// able to see the path.
     public func updateDusk(forMeanPosteriorSD sd: Double) {
         guard let effectNode = worldEffectNode else { return }
         let step = paletteController.step(forMeanPosteriorSD: sd)
@@ -269,7 +272,7 @@ public class VillageScene: SKScene {
     /// Monotonic, and never fully opaque — the player must still see the path.
     static func vignetteAlpha(forStep step: Double) -> CGFloat {
         let clamped = min(max(step, 0), 5)
-        return CGFloat(0.06 + (clamped / 5.0) * 0.74)
+        return CGFloat(0.42 + (clamped / 5.0) * 0.53)
     }
 
     public override func update(_ currentTime: TimeInterval) {

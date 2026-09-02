@@ -39,12 +39,37 @@ RESOURCES = ROOT / "Priors/Priors/Priors/Resources"
 TILE = 16
 SHEET_COLS = 12
 
-#: Row/column of each finished figure in the Roguelike Characters sheet.
-#: Columns 0 and 1 are complete characters; verified by rendering the grid, not
-#: assumed. The player is a plain villager — SPEC §2.4 allows no named
-#: protagonist and no personality, so it is deliberately unremarkable.
-PLAYER_CELL = (7, 0)
-VILLAGER_CELLS = [(8, 0), (5, 1), (9, 1)]
+#: The figure every character is built from. Rows 0-2, column 0 of the
+#: Roguelike Characters sheet are HOODED figures — a cloaked silhouette with no
+#: hair, no skin and no expression, carrying only two eye pixels that
+#: `strip_eyes` removes. Verified by rendering the grid and looking at it, not
+#: assumed.
+#:
+#: This replaces the human villagers previously used (rows 5-11), which had
+#: full faces — hair, skin, and in the player's case a wide open mouth that was
+#: never stripped at all. SPEC §8: "Villagers have no faces. Faces invite
+#: role-play." A hood satisfies that by construction rather than by surgery,
+#: and reads far better in a village lit only by carried fire.
+HOOD_CELL = (0, 0)
+
+#: Every figure is the same silhouette, separated by hood colour alone.
+#: The player is the one warm figure on screen because they are the one
+#: carrying the lantern; SPEC §2.4 still allows them no name and no
+#: personality, and a colour is neither.
+PLAYER_HOOD = (214, 150, 74)      # brass, lantern-lit
+VILLAGER_HOODS = [
+    (92, 106, 132),   # slate
+    (112, 84, 62),    # umber
+    (104, 106, 114),  # ash
+    (86, 104, 82),    # moss
+    (106, 84, 104),   # plum
+]
+
+#: The lantern the player carries, drawn onto the sprite so the figure the
+#: player controls is distinguishable from the villagers at a glance. It was
+#: not before: player and villagers were the same silhouette in the same tones.
+LANTERN_FLAME = (255, 205, 120, 255)
+LANTERN_BODY = (120, 84, 40, 255)
 
 def sheet() -> Image.Image:
     return Image.open(SRC).convert("RGBA")
@@ -126,6 +151,63 @@ def back_of_head(img: Image.Image) -> Image.Image:
             if px[x, y] == skin:
                 px[x, y] = hair
     return strip_face(out)
+
+
+def strip_eyes(img: Image.Image) -> Image.Image:
+    """Remove the two eye pixels from a hooded figure.
+
+    Same enclosure rule as `strip_face`: anything inside the hood band with
+    hood colour on both sides of it is a facial feature, not the hood. Detecting
+    it by enclosure rather than fixed coordinates keeps one rule working across
+    the pack's slightly different head heights.
+    """
+    out = img.copy()
+    px = out.load()
+    hood = _dominant(out, range(4, 12), range(2, 8))
+    if hood is None:
+        return out
+    for y in range(2, 9):
+        for x in range(4, 12):
+            if px[x, y][3] == 0 or px[x, y] == hood:
+                continue
+            left = any(px[xx, y] == hood for xx in range(max(0, x - 3), x))
+            right = any(px[xx, y] == hood for xx in range(x + 1, min(CHAR_TILE, x + 4)))
+            if left and right:
+                px[x, y] = hood
+    return out
+
+
+def tint(img: Image.Image, base) -> Image.Image:
+    """Recolour a figure by mapping each pixel's luminance onto a ramp of
+    `base`, which preserves the source's shading while changing its hue.
+
+    Straight colour substitution would need the pack's exact shade list per
+    figure; a luminance ramp needs one target colour and cannot miss a shade.
+    """
+    out = img.copy()
+    px = out.load()
+    br, bg, bb = base
+    for y in range(out.height):
+        for x in range(out.width):
+            r, g, b, a = px[x, y]
+            if a == 0:
+                continue
+            lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
+            k = 0.45 + 0.80 * lum
+            px[x, y] = (min(255, int(br * k)), min(255, int(bg * k)), min(255, int(bb * k)), a)
+    return out
+
+
+def with_lantern(img: Image.Image, side: int = 1) -> Image.Image:
+    """Hang a lit lantern off the figure. `side` is +1 for the right hand,
+    -1 for the left, so a mirrored side-view keeps it in the same hand."""
+    out = img.copy()
+    px = out.load()
+    x = 13 if side > 0 else 2
+    px[x, 9] = LANTERN_BODY
+    px[x, 10] = LANTERN_FLAME
+    px[x, 11] = LANTERN_BODY
+    return out
 
 
 def bob(img: Image.Image) -> Image.Image:
@@ -215,23 +297,32 @@ def main() -> None:
     tiles.alpha_composite(extras_row(s.width), (0, s.height))
     imageset("TinyTown", tiles)
 
-    # 2. Character atlas: 4 columns x 3 rows of 16x16.
+    # 2. Character atlas: 4 columns x 4 rows of 16x16.
     #    row 0: player down A/B, player side A/B
     #    row 1: player up A/B,   villager 1 A/B
     #    row 2: villager 2 A/B,  villager 3 A/B
+    #    row 3: villager 4 A/B,  villager 5 A/B
     #
-    # The pack has no walk cycle and no back view, so both are derived: a
-    # one-pixel bob for the step, hair over the face for the back. Left is the
-    # side pair mirrored at draw time.
-    player = char(*PLAYER_CELL)
-    up = back_of_head(player)
-    villagers = [strip_face(char(r, c)) for r, c in VILLAGER_CELLS]
+    # Every figure is the same hooded silhouette in a different colour. The
+    # pack has no walk cycle, so the step is a derived one-pixel bob; left is
+    # the side pair mirrored by `CharacterNode`. Because a hood has no face,
+    # there is no back view to draw — the figure reads identically from behind,
+    # which is the honest consequence of SPEC §8 rather than a shortcut.
+    hood = strip_eyes(char(*HOOD_CELL))
 
-    frames = [player, bob(player), player, bob(player),
-              up, bob(up), villagers[0], bob(villagers[0]),
-              villagers[1], bob(villagers[1]), villagers[2], bob(villagers[2])]
+    player_front = with_lantern(tint(hood, PLAYER_HOOD))
+    player_side = with_lantern(tint(hood, PLAYER_HOOD))
+    player_back = with_lantern(tint(hood, PLAYER_HOOD), side=-1)
+    villagers = [tint(hood, c) for c in VILLAGER_HOODS]
 
-    atlas = Image.new("RGBA", (4 * TILE, 3 * TILE), (0, 0, 0, 0))
+    frames = [
+        player_front, bob(player_front), player_side, bob(player_side),
+        player_back, bob(player_back), villagers[0], bob(villagers[0]),
+        villagers[1], bob(villagers[1]), villagers[2], bob(villagers[2]),
+        villagers[3], bob(villagers[3]), villagers[4], bob(villagers[4]),
+    ]
+
+    atlas = Image.new("RGBA", (4 * TILE, 4 * TILE), (0, 0, 0, 0))
     for i, f in enumerate(frames):
         atlas.alpha_composite(f, ((i % 4) * TILE, (i // 4) * TILE))
     imageset("Traveller", atlas)

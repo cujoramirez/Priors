@@ -102,7 +102,7 @@ public final class VillageAssets {
 
     private var tileTextures: [TileType: SKTexture] = [:]
     private var playerFrames: [Direction: [SKTexture]] = [:]
-    /// Three faceless villagers, two frames each.
+    /// Five faceless hooded villagers, two frames each.
     private var villagerVariants: [[SKTexture]] = []
 
     public init() {
@@ -136,16 +136,23 @@ public final class VillageAssets {
 
     // MARK: - Characters
 
-    /// `Traveller.png` is 4 columns x 3 rows of 16x16:
+    /// `Traveller.png` is 4 columns x 4 rows of 16x16:
     ///   row 0: player down A/B, player side A/B
     ///   row 1: player up A/B,   villager 1 A/B
     ///   row 2: villager 2 A/B,  villager 3 A/B
+    ///   row 3: villager 4 A/B,  villager 5 A/B
     ///
-    /// Source is Kenney "Roguelike Characters" (CC0). That pack has no walk
-    /// cycle and no back view, so the step is a derived one-pixel bob and the
-    /// back is hair drawn over the face; left is the side pair mirrored by
-    /// `CharacterNode`. Villagers have their eyes and mouth removed —
-    /// SPEC §8: "Villagers have no faces. Faces invite role-play."
+    /// Source is Kenney "Roguelike Characters" (CC0), rows 0-2 column 0 — the
+    /// HOODED figures, not the human ones. Every character is that same
+    /// silhouette in a different hood colour, so SPEC §8's "Villagers have no
+    /// faces" holds by construction rather than by erasing pixels off a face
+    /// that was drawn. The human sprites used before had hair, skin, and in
+    /// the player's case an open mouth that was never stripped at all.
+    ///
+    /// The pack has no walk cycle, so the step is a derived one-pixel bob;
+    /// left is the side pair mirrored by `CharacterNode`. There is no back
+    /// view to draw: a hood reads the same from behind, which is the honest
+    /// consequence of facelessness rather than a shortcut.
     ///
     /// Characters do **not** come from the Tiny Town tile sheet. Tiny Town is a
     /// buildings-and-props pack containing no people; its tile 104, briefly
@@ -168,7 +175,9 @@ public final class VillageAssets {
               let upA = frame(0, 1), let upB = frame(1, 1),
               let v1a = frame(2, 1), let v1b = frame(3, 1),
               let v2a = frame(0, 2), let v2b = frame(1, 2),
-              let v3a = frame(2, 2), let v3b = frame(3, 2)
+              let v3a = frame(2, 2), let v3b = frame(3, 2),
+              let v4a = frame(0, 3), let v4b = frame(1, 3),
+              let v5a = frame(2, 3), let v5b = frame(3, 3)
         else {
             generateFallbackCharacterTextures()
             return
@@ -177,7 +186,7 @@ public final class VillageAssets {
         playerFrames[.up] = [upA, upB]
         playerFrames[.right] = [sideA, sideB]
         playerFrames[.left] = [sideA, sideB]     // drawn flipped by CharacterNode
-        villagerVariants = [[v1a, v1b], [v2a, v2b], [v3a, v3b]]
+        villagerVariants = [[v1a, v1b], [v2a, v2b], [v3a, v3b], [v4a, v4b], [v5a, v5b]]
     }
 
     private func loadImage(named name: String) -> UIImage? {
