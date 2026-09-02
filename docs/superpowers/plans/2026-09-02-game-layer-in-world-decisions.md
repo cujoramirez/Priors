@@ -721,7 +721,7 @@ git commit -m "Add ThresholdNode: spatial in-world decision rendering (SPEC §8.
 
 **Interfaces:**
 - Consumes: `LiveDecision`, `VillageAssets` (existing, for villager textures/variants — same API `NPCNode` already uses: `VillageAssets.shared.npcIdleTexture(variant:)`, `.villagerVariantCount`).
-- Produces: `WaitingVillagerNode(decision: LiveDecision, id: String)`, `.approachRadius: CGFloat = 40.0` (how close the player must be, facing the villager, for Interact to register), `.walkIn(to: CGPoint, from: CGPoint)` (scripted approach, mirrors `ShadowNode.walkToward`), `.isPlayerFacingAndClose(playerPosition: CGPoint, playerDirection: Direction) -> Bool`.
+- Produces: `WaitingVillagerNode(decision: LiveDecision, id: String)`, `.approachRadius: CGFloat = 40.0` (how close the player must be for Interact to register), `.walkIn(to: CGPoint, from: CGPoint)` (scripted approach, mirrors `ShadowNode.walkToward`), `.isPlayerClose(playerPosition: CGPoint) -> Bool`.
 
 **Why no gaze/attention:** SPEC.md §8.3 (folded from draft §5.2) forbids villager attention that resembles watching, because it confounds the eye manipulation (SPEC §6.3). This node faces a fixed direction once it stops (toward wherever it walked in from, i.e. away from open space, not toward the player) and never turns to track the player — deliberately, so it cannot be mistaken for an attention cue.
 
