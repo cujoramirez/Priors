@@ -84,16 +84,28 @@ public struct ConsentScreen: View {
 
                     // Core Headline & Explanation
                     VStack(spacing: 12) {
+                        // `fixedSize(vertical:)` on every multi-line string on
+                        // this screen: the app is landscape-only (Info.plist
+                        // lists only LandscapeLeft/Right) and these cards were
+                        // laid out for portrait height, so SwiftUI was
+                        // resolving the overflow by compressing each two-line
+                        // Text to one and eliding the rest. Both of these are
+                        // consent copy (SPEC §2's disclosure), which makes a
+                        // silently truncated sentence the worst possible place
+                        // for this bug — "…behavioral models…" dropped the
+                        // clause promising the data never leaves the device.
                         Text("Priors records every choice you make\nand builds a model of how you decide.")
                             .font(.system(size: 19, weight: .regular, design: .serif))
                             .multilineTextAlignment(.center)
                             .lineSpacing(6)
+                            .fixedSize(horizontal: false, vertical: true)
                             .foregroundColor(.white.opacity(0.95))
 
                         Text("All telemetry, movement paths, and behavioral models\nremain strictly on this device.")
                             .font(.system(size: 14, weight: .regular))
                             .multilineTextAlignment(.center)
                             .lineSpacing(4)
+                            .fixedSize(horizontal: false, vertical: true)
                             .foregroundColor(.white.opacity(0.65))
                     }
                 }

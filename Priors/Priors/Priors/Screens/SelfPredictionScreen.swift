@@ -47,14 +47,22 @@ public struct SelfPredictionScreen: View {
                 VStack(spacing: 22) {
                     // Header Title & Explainer
                     VStack(spacing: 8) {
+                        // Landscape-only app, portrait-height card: without
+                        // `fixedSize(vertical:)` SwiftUI compresses this to
+                        // one line and the question itself is elided to
+                        // "Before the paths —…", leaving the player to answer
+                        // a prompt they were never shown.
                         Text("Before the paths —\nhow much risk would you have accepted?")
                             .font(.system(size: 19, weight: .regular, design: .serif))
                             .multilineTextAlignment(.center)
                             .lineSpacing(5)
+                            .fixedSize(horizontal: false, vertical: true)
                             .foregroundColor(.white.opacity(0.95))
 
                         Text("Estimate your threshold for navigating danger when fuel is low.")
                             .font(.system(size: 13, weight: .regular))
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
                             .foregroundColor(.white.opacity(0.60))
                     }
 
