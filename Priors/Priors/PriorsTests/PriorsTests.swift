@@ -112,7 +112,7 @@ struct PriorsTests {
 
         // SPEC §8: At least 30% of walkable area is empty dead space
         #expect(result.mapData.deadSpaceFraction >= 0.30)
-        #expect(result.triggers.count == 30)
+        #expect(result.decisionLocations.count == 30)
         #expect(result.eyeNode.name == "the_eye")
 
         // Check region lookup
@@ -189,7 +189,14 @@ struct PriorsTests {
         #expect(coordinator.decisions.isEmpty)
         #expect(coordinator.lanternCount == 3)
 
+        // The arm/resolve loop needs a presented scene: armNextDecision reads
+        // playerNode and decisionLocations, which only exist after didMove.
         let scene = VillageScene(size: CGSize(width: 800, height: 600))
+        let skView = SKView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
+        skView.presentScene(scene)
+        #expect(scene.decisionLocations.count == 30)
+        #expect(scene.playerNode != nil)
+
         let sampler = MovementSampler()
 
         var completedRecord: SessionRecord?
@@ -197,30 +204,33 @@ struct PriorsTests {
             completedRecord = record
         }
 
-        // Run full 30-decision loop
-        for slot in 0..<30 {
-            coordinator.presentCurrentScenario(scene: scene)
-            #expect(coordinator.isPresentingScenario == true)
-            #expect(coordinator.activePrompt != nil)
+        // SPEC §8.3 — exactly one decision live at a time: arm slot 0 here,
+        // and each resolution arms the next slot itself.
+        coordinator.armNextDecision(scene: scene)
 
-            let prompt = coordinator.activePrompt!
-            #expect(prompt.slot == slot)
-            #expect(!prompt.title.isEmpty)
+        for slot in 0..<30 {
+            #expect(coordinator.currentSlot == slot)
+            let decision = try #require(coordinator.liveDecision)
+            #expect(!decision.phrase.isEmpty)
+            #expect(decision.design.trait == Scenarios.traitSchedule[slot])
+            // The armed location's trait must match the design's trait, which
+            // is what routes spatial vs. social presentation.
+            #expect(decision.isSpatial == (decision.design.trait == .thetaE))
 
             let engaged = (slot % 2 == 0)
-            coordinator.handleChoice(
+            coordinator.resolveLiveDecision(
                 engaged: engaged,
                 metrics: (approachFrac: 0.65, backtracks: 1, idleMs: 400),
                 movementSampler: sampler,
                 scene: scene
             )
 
-            #expect(coordinator.isPresentingScenario == false)
             #expect(coordinator.currentSlot == slot + 1)
             #expect(coordinator.decisions.count == slot + 1)
         }
 
         #expect(coordinator.currentSlot == 30)
+        #expect(coordinator.liveDecision == nil)
         #expect(completedRecord != nil)
         guard let record = completedRecord else { return }
 

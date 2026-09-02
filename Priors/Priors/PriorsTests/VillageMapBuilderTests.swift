@@ -5,6 +5,7 @@ import PriorsEngine
 
 @Suite("VillageMapBuilder decision locations")
 struct VillageMapBuilderTests {
+    @MainActor
     @Test func exactlyNineteenSpatialAndElevenSocialLocations() async throws {
         let root = SKNode()
         let result = VillageMapBuilder.shared.buildVillage(in: root)
@@ -15,6 +16,7 @@ struct VillageMapBuilderTests {
         #expect(result.decisionLocations.count == 30)
     }
 
+    @MainActor
     @Test func allLocationIDsAreUnique() async throws {
         let root = SKNode()
         let result = VillageMapBuilder.shared.buildVillage(in: root)

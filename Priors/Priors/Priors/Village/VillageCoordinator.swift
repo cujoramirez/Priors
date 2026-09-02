@@ -23,8 +23,11 @@ public final class VillageCoordinator: @unchecked Sendable {
     public var selectionState = SelectionState()
     public var currentSlot: Int = 0
     public var lanternCount: Int = 3
-    public var activePrompt: ScenarioPromptData?
-    public var isPresentingScenario: Bool = false
+    /// SPEC §8.3 — the single decision currently live in the world, or nil
+    /// between slots. Replaces the old `activePrompt`/`isPresentingScenario`
+    /// pair: there is no modal to present, so presentation state collapses
+    /// into "is something armed".
+    public var liveDecision: LiveDecision?
 
     // Timing & Monotonic Clock
     public private(set) var sessionStartInstant: ContinuousClock.Instant
@@ -40,6 +43,10 @@ public final class VillageCoordinator: @unchecked Sendable {
     // Event Schedules
     public private(set) var eyeDecisionIndex: Int?
     private let shadowSlots: Set<Int> = [16, 20, 24, 28] // 4 moments after decision 15 (SPEC §6.2)
+    /// Each pre-built location hosts at most one decision per session, so the
+    /// player never sees the same spot light up twice. The map ships exactly
+    /// 19 theta_e and 11 theta_i spots, matching `Scenarios.traitSchedule`.
+    private var usedLocationIDs: Set<Int> = []
 
     @ObservationIgnored
     public var onSessionComplete: (@MainActor (SessionRecord) -> Void)?
@@ -66,27 +73,46 @@ public final class VillageCoordinator: @unchecked Sendable {
         posterior.meanSD(.thetaE).sd
     }
 
+    /// SPEC §8.3 — arms the next ADO slot's design at whichever pre-built
+    /// location's trait matches, nearest to the player. Exactly one decision
+    /// is live at a time: this keeps ADO fully adaptive, since the design for
+    /// slot N+1 is only computed after slot N's response is known.
     @MainActor
-    public func presentCurrentScenario(scene: VillageScene) {
+    public func armNextDecision(scene: VillageScene) {
         guard currentSlot < Scenarios.decisionCount else { return }
-        guard !isPresentingScenario else { return }
+        guard liveDecision == nil else { return }
 
         let design = ADOSelector.selectDesign(
             posterior: posterior,
             slot: currentSlot,
             state: selectionState
         )
+        let decision = LiveDecision(design: design)
+        let wantedTrait = decision.isSpatial ? Trait.thetaE : Trait.thetaI
+        let candidates = scene.decisionLocations.filter {
+            $0.trait == wantedTrait && !usedLocationIDs.contains($0.id)
+        }
+        guard let player = scene.playerNode else { return }
+        guard let nearest = candidates.min(by: { a, b in
+            let da = hypot(a.position.x - player.position.x, a.position.y - player.position.y)
+            let db = hypot(b.position.x - player.position.x, b.position.y - player.position.y)
+            return da < db
+        }) else {
+            assertionFailure("slot \(currentSlot): no unused \(wantedTrait) location left")
+            return
+        }
+        usedLocationIDs.insert(nearest.id)
 
         let now = ContinuousClock.now
         scenarioPresentationInstant = now
         scenarioPresentationSeconds = monotonicSecondsSinceStart(at: now)
 
-        activePrompt = ScenarioPromptData(design: design)
-        isPresentingScenario = true
+        liveDecision = decision
+        scene.armDecision(decision, at: nearest)
 
         // Check if Shadow event should trigger before this decision (SPEC §6.2)
         if shadowSlots.contains(currentSlot) {
-            triggerShadowPrediction(nextDesign: design, in: scene)
+            triggerShadowPrediction(nextDesign: design, armedAt: nearest.position, in: scene)
         }
 
         // Check if Eye event should trigger at this decision index (SPEC §6.3)
@@ -95,26 +121,24 @@ public final class VillageCoordinator: @unchecked Sendable {
         }
     }
 
+    /// SPEC §8.3 — the world resolved the armed decision (threshold crossed,
+    /// or villager held/left). Logs the record, folds the response into the
+    /// posterior, then arms the next slot — or finishes the session.
     @MainActor
-    public func handleChoice(
+    public func resolveLiveDecision(
         engaged: Bool,
         metrics: (approachFrac: Double, backtracks: Int, idleMs: Int),
         movementSampler: MovementSampler,
         scene: VillageScene
     ) {
-        guard isPresentingScenario, activePrompt != nil else { return }
+        guard let decision = liveDecision else { return }
+        let design = decision.design
 
         let now = ContinuousClock.now
         let presentationTime = scenarioPresentationInstant ?? now
         let duration = now - presentationTime
         let rtMs = Int(duration.components.seconds * 1000 + duration.components.attoseconds / 1_000_000_000_000_000)
         let tDecided = monotonicSecondsSinceStart(at: now)
-
-        let design = ADOSelector.selectDesign(
-            posterior: posterior,
-            slot: currentSlot,
-            state: selectionState
-        )
 
         let (meanE, sdE) = posterior.meanSD(.thetaE)
         let (meanI, sdI) = posterior.meanSD(.thetaI)
@@ -165,14 +189,14 @@ public final class VillageCoordinator: @unchecked Sendable {
         // Update Audio Stem Decay (SPEC §8.1)
         AudioManager.shared.updateDecay(meanPosteriorSD: newSdE)
 
-        // Dismiss Scenario Dialog
-        isPresentingScenario = false
-        activePrompt = nil
+        liveDecision = nil
         currentSlot += 1
 
         // Check if session completed (30 decisions)
         if currentSlot >= Scenarios.decisionCount {
             finishSession(movementSampler: movementSampler, scene: scene)
+        } else {
+            armNextDecision(scene: scene)
         }
     }
 
@@ -203,7 +227,7 @@ public final class VillageCoordinator: @unchecked Sendable {
     }
 
     @MainActor
-    private func triggerShadowPrediction(nextDesign: Design, in scene: VillageScene) {
+    private func triggerShadowPrediction(nextDesign: Design, armedAt armedPosition: CGPoint, in scene: VillageScene) {
         let prediction = EventTriggers.shadowTarget(posterior: posterior, nextDesign: nextDesign)
         let t = monotonicSecondsSinceStart(at: ContinuousClock.now)
         shadowAppearances.append(t)
@@ -211,7 +235,7 @@ public final class VillageCoordinator: @unchecked Sendable {
         // Predict destination point
         let targetPoint: CGPoint
         if prediction.willEngage {
-            targetPoint = scene.activeTrigger?.position ?? scene.playerNode.position
+            targetPoint = armedPosition
         } else {
             // Away from trigger
             targetPoint = CGPoint(x: scene.playerNode.position.x - 120, y: scene.playerNode.position.y - 120)
