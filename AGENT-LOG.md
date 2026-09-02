@@ -739,3 +739,69 @@ Open questions / not done:
     overclaimed comment in `LiveDecisionResolutionTests` (it does not actually
     pin `setInteractPressed`'s idempotence, though its arrival-gate half is
     valid).
+
+## Final review of the game-layer branch — closed
+Status: done — branch ready for human integration decision
+Files touched: this entry only; the fix wave itself is commit `8a529a7`.
+
+The whole-branch final review (see the entry above) found a Critical finding
+the per-task reviews could not see: `rt_ms` was measured from when a decision
+was *armed* — the instant the previous one resolved — not from when the
+player actually entered the decision's zone, so it silently contained the
+player's cross-village walk instead of their hesitation. This invalidated the
+premise of the whole `rt_base` re-fit and meant the `BehaviouralPosterior`
+switch (Task 12) was reading the wrong signal without failing loudly, because
+0.0 sits on the model's own "this player's hesitation says nothing" grid
+point. Fixed, along with five Important findings, in one fix wave (commit
+`8a529a7`), then independently re-verified — a second reviewer read the fix
+diff in chunks after two earlier attempts stalled on it whole, and confirmed
+all 13 findings genuinely addressed with file:line evidence, not just
+attempted.
+
+**One finding survives, by decision, not by oversight — a real, quantified
+bias, not a merge blocker.** The social decision's hesitation clock opens at
+the villager's 80pt "decline" radius; the spatial decision's opens at the
+threshold's 36pt zone. At 110pt/s that is a systematic **+300 to +800ms** on
+every social decision's `rt_ms`, worth 0.3–3.6 posterior SDs depending on how
+much genuine hesitation is present. Because `BehaviouralPosterior` shares one
+`rt_base` nuisance axis across both traits, and the social templates
+(`ERROR`/`CREDIT`/`GIVE`) are θ_i's *only* source, this doesn't just add
+noise — it can make the RT channel self-confirming for θ_i (ADO prices near
+the current θ_i estimate, so the near-line term absorbs the offset) and
+actively suppress the `peak = 0` "no signal" escape hatch that
+`BehaviouralPosterior.swift`'s own design exists to keep representable.
+
+**Why this ships anyway:** SPEC §8.3 specifies the clock for thresholds, not
+the social dwell gate, so nothing in the contract is broken. It is strictly
+better than the pre-fix-wave state, which the correct comparison bar — both
+branches were arm-to-resolve before, carrying far larger and more variable
+travel-distance bias. It is not a safe one-line fix: gating the clock on the
+40pt approach radius instead of the 80pt decline radius would break the
+decline path, which requires having *entered* the zone at all
+(`zoneEntryTime != nil`) — a player who reaches 80pt but never 40pt and
+leaves would never resolve. The correct fix is a **per-family `rt_base`** (or
+an explicit per-family offset) in `rt_posterior.py` / `BehaviouralPosterior.swift`
+plus regenerated goldens — a PriorsEngine change, deliberately kept out of
+this branch. `rt_ms` and `template` are both logged per decision, so the
+offset is estimable and subtractable from data already collected.
+
+**This is a named blocker before any real-tester data collection**, not
+before this branch's merge. Whoever picks up PriorsEngine work next should
+read this before trusting θ_i estimates from any session run on this branch
+without the per-family fix.
+
+Verified: PriorsEngine 78/78; a scoped `-only-testing:PriorsTests` run —
+**55 tests in 4 suites, all passed** — `.xcresult` at
+`Test-Priors-2026.09.02_17-09-14` in this worktree's DerivedData
+(`Priors-avnngqunzvacatcpbwbbutxzjwmg`). `priors-research` unaffected by this
+wave (confirmed via diff, not re-run).
+
+Separately, logged for whoever next opens this worktree: `stash@{0}` holds an
+unrelated, out-of-process session's narrative/UI overhaul (named villager
+characters with individual arcs, a full visual redesign) made directly on
+top of this branch's HEAD while its review was still open. It is not part of
+this plan, conflicts with SPEC.md §2.4/§8 as written (no personality, no
+named protagonist, villagers have no faces), and should not be popped or
+merged without its own ratification pass — see the SDD ledger
+(`.superpowers/sdd/2026-09-02-game-layer-in-world-decisions/progress.md`)
+for the full incident record.
