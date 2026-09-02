@@ -1,4 +1,5 @@
 import Testing
+import CoreGraphics
 @testable import Priors
 import PriorsEngine
 
@@ -45,6 +46,34 @@ struct BandLadderTests {
         for (a, b) in zip(values, values.dropFirst()) {
             #expect(b > a)
         }
+    }
+
+    /// SPEC §8.2 / FINDINGS.md -- band *count* is nearly free, band
+    /// *distinctness* is the entire cost of the diegetic ladder. The first
+    /// pass separated adjacent bands by ~0.09 of alpha on a flat black circle
+    /// and nothing else. This pins the widened separation and, more
+    /// importantly, pins that darkness is not the only channel: two bands must
+    /// differ in size and rim weight too.
+    @Test func adjacentBandsSeparateOnEveryIntensityChannel() async throws {
+        let intensities = (1...7).map { BandLadder.visualIntensity(band: $0) }
+
+        for (a, b) in zip(intensities, intensities.dropFirst()) {
+            let alphaStep = DecisionIntensityStyle.poolAlpha(b) - DecisionIntensityStyle.poolAlpha(a)
+            #expect(alphaStep > 0.13, "adjacent bands differ by \(alphaStep) alpha")
+
+            let radiusStep = DecisionIntensityStyle.poolRadiusFraction(b)
+                - DecisionIntensityStyle.poolRadiusFraction(a)
+            #expect(radiusStep > 0.08)
+
+            let rimStep = DecisionIntensityStyle.rimWidth(b) - DecisionIntensityStyle.rimWidth(a)
+            #expect(rimStep > 0.5)
+        }
+
+        // Band 1 must still be visible at all, and band 7 must not be a
+        // featureless black disc.
+        #expect(DecisionIntensityStyle.poolAlpha(0.0) >= 0.08)
+        #expect(DecisionIntensityStyle.poolAlpha(1.0) <= 0.95)
+        #expect(DecisionIntensityStyle.figureShading(1.0) <= 0.5)
     }
 
     @Test func priceOutsideRangeClampsToTheEdgeBand() async throws {

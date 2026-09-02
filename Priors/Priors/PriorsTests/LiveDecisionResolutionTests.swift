@@ -28,6 +28,12 @@ struct LiveDecisionResolutionTests {
         let scene = VillageScene(size: CGSize(width: 800, height: 600))
         let view = SKView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
         view.presentScene(scene)
+        // The host app's window can drive this view's render loop, which would
+        // advance SKActions between statements -- a villager caught partway
+        // through its walk-in, a fading node already collected. Every frame
+        // these tests care about is driven explicitly through `update(_:)`, so
+        // freeze everything else and keep the assertions deterministic.
+        scene.isPaused = true
         return scene
     }
 
@@ -61,6 +67,40 @@ struct LiveDecisionResolutionTests {
         CGPoint(x: p.x + dx, y: p.y)
     }
 
+    private typealias Resolution = (
+        engaged: Bool,
+        zoneDwellSeconds: TimeInterval,
+        metrics: (approachFrac: Double, backtracks: Int, idleMs: Int)
+    )
+
+    /// Arms a social decision and puts the villager in the state a device
+    /// reaches a few seconds later: stopped, phrase showing, waiting. In
+    /// production that transition comes from an `SKAction` completion, which
+    /// needs a render loop no unit test has -- so without this seam the whole
+    /// hold-to-engage / walk-away-to-decline path (11 of every 30 decisions)
+    /// is unreachable from a test.
+    private func arrivedVillager(in scene: VillageScene) throws -> WaitingVillagerNode {
+        let design = ADOSelector.selectDesign(
+            posterior: Posterior(), slot: 2, state: SelectionState()
+        )
+        let decision = LiveDecision(design: design)
+        #expect(!decision.isSpatial)
+        let location = try #require(scene.decisionLocations.first { $0.trait == .thetaI })
+        scene.armDecision(decision, at: location)
+        let villager = try #require(armedVillagers(in: scene).first)
+        villager.simulateArrivalForTesting()
+        #expect(villager.hasArrived)
+        return villager
+    }
+
+    /// A frame with the player standing still at `point` -- the state the
+    /// social branch's hold and idle accounting both care about.
+    private func stand(_ scene: VillageScene, at point: CGPoint, at time: TimeInterval) {
+        scene.setInputVector(.zero)
+        scene.playerNode.position = point
+        scene.update(time)
+    }
+
     // MARK: - Spatial: crossing == engage
 
     @Test func crossingAThresholdResolvesEngagedAndArmsTheNextSlot() async throws {
@@ -68,11 +108,12 @@ struct LiveDecisionResolutionTests {
         let scene = presentedScene()
         let sampler = MovementSampler()
 
-        var resolutions: [(engaged: Bool, metrics: (approachFrac: Double, backtracks: Int, idleMs: Int))] = []
+        var resolutions: [Resolution] = []
         scene.onLiveDecisionResolved = { result in
             resolutions.append(result)
             coordinator.resolveLiveDecision(
                 engaged: result.engaged,
+                zoneDwellSeconds: result.zoneDwellSeconds,
                 metrics: result.metrics,
                 movementSampler: sampler,
                 scene: scene
@@ -141,11 +182,12 @@ struct LiveDecisionResolutionTests {
         let scene = presentedScene()
         let sampler = MovementSampler()
 
-        var resolutions: [(engaged: Bool, metrics: (approachFrac: Double, backtracks: Int, idleMs: Int))] = []
+        var resolutions: [Resolution] = []
         scene.onLiveDecisionResolved = { result in
             resolutions.append(result)
             coordinator.resolveLiveDecision(
                 engaged: result.engaged,
+                zoneDwellSeconds: result.zoneDwellSeconds,
                 metrics: result.metrics,
                 movementSampler: sampler,
                 scene: scene
@@ -235,9 +277,11 @@ struct LiveDecisionResolutionTests {
         #expect(scene.canInteractNow == false)
 
         // Holding Interact through the full hold duration must not resolve a
-        // villager who has not arrived. The repeated `true` also pins
-        // `setInteractPressed`'s idempotence contract: a re-fired press must
-        // not restart or latch the hold timer.
+        // villager who has not arrived. The repeated `true` does NOT pin
+        // `setInteractPressed`'s idempotence here -- with `hasArrived` false
+        // the hold branch is unreachable, so nothing would tell the two
+        // implementations apart. `repeatedInteractPressesDoNotRestartTheHold`
+        // below pins it for real, on an arrived villager.
         scene.setInteractPressed(true)
         scene.setInteractPressed(true)
         for i in 1...40 {
@@ -274,5 +318,262 @@ struct LiveDecisionResolutionTests {
         scene.armDecision(LiveDecision(design: socialDesign), at: socialLocation)
         #expect(armedThreshold(in: scene) == nil, "the previous threshold must be removed")
         #expect(armedVillagers(in: scene).count == 1)
+    }
+
+    // MARK: - C1: rt_ms is hesitation in the zone, not the walk to it
+
+    /// SPEC §8.3: `rt_ms` is the "time between entering a threshold's zone and
+    /// resolving it". Arming happens the instant the previous decision
+    /// resolves, with the player standing wherever that was -- so a timer
+    /// started at arm time measures the whole walk across the village. This
+    /// pins the semantics: 40 seconds of travel between arming and entering
+    /// the zone must not appear in `rt_ms`.
+    @Test func rtMsMeasuresTimeInTheZoneNotTimeSinceArming() async throws {
+        let coordinator = makeCoordinator()
+        let scene = presentedScene()
+        let sampler = MovementSampler()
+
+        scene.onLiveDecisionResolved = { result in
+            coordinator.resolveLiveDecision(
+                engaged: result.engaged,
+                zoneDwellSeconds: result.zoneDwellSeconds,
+                metrics: result.metrics,
+                movementSampler: sampler,
+                scene: scene
+            )
+        }
+
+        coordinator.armNextDecision(scene: scene)
+        let threshold = try #require(armedThreshold(in: scene))
+        let centre = threshold.position
+
+        // 40 seconds of walking somewhere else entirely, exactly as a player
+        // crossing the village (and detouring to deliver a lantern) would.
+        for i in 0...40 {
+            step(scene, to: offset(centre, dx: 600), at: TimeInterval(i))
+        }
+        #expect(coordinator.decisions.isEmpty)
+
+        // Then the actual decision: 1.2s from entering the zone to leaving it.
+        step(scene, to: offset(centre, dx: 30), at: 41.0)
+        step(scene, to: offset(centre, dx: 8), at: 41.6)
+        step(scene, to: offset(centre, dx: 400), at: 42.2)
+
+        #expect(coordinator.decisions.count == 1)
+        let record = coordinator.decisions[0]
+        #expect(record.rtMs == 1_200)
+        // The point of the whole fix: the 41s of travel is excluded.
+        #expect(record.rtMs < 5_000)
+        // SCHEMA §1 -- `rt_ms = t_decided - t_presented`, exactly.
+        #expect(abs((record.tDecided - record.tPresented) - Double(record.rtMs) / 1000.0) < 1e-9)
+        // And `t_presented` is the zone entry, ~1.2s before the decision, not
+        // the arm instant ~42s before it.
+        #expect(record.tDecided - record.tPresented < 5.0)
+    }
+
+    // MARK: - I6: resolved nodes fade rather than vanishing
+
+    @Test func aResolvedThresholdLeavesTheLiveWorldButFadesOut() async throws {
+        let coordinator = makeCoordinator()
+        let scene = presentedScene()
+        let sampler = MovementSampler()
+
+        scene.onLiveDecisionResolved = { result in
+            coordinator.resolveLiveDecision(
+                engaged: result.engaged,
+                zoneDwellSeconds: result.zoneDwellSeconds,
+                metrics: result.metrics,
+                movementSampler: sampler,
+                scene: scene
+            )
+        }
+
+        coordinator.armNextDecision(scene: scene)
+        let threshold = try #require(armedThreshold(in: scene))
+        let centre = threshold.position
+
+        step(scene, to: offset(centre, dx: 400), at: 0.0)
+        step(scene, to: offset(centre, dx: 8), at: 0.1)
+        step(scene, to: offset(centre, dx: 400), at: 0.2)
+
+        #expect(coordinator.decisions.count == 1)
+        // It is out of the live world on the resolving frame -- "exactly one
+        // decision is live" stays literally true...
+        #expect(!scene.worldNode.children.contains(threshold))
+        // ...but it is still on screen, fading, rather than deleted under the
+        // player's eyes.
+        #expect(threshold.parent != nil)
+        #expect(threshold.hasActions())
+    }
+
+    // MARK: - I6: a waiting villager never spawns inside geometry
+
+    @Test func aWaitingVillagerWalksInFromWalkableGround() async throws {
+        let scene = presentedScene()
+        let map = try #require(scene.mapData)
+        let design = ADOSelector.selectDesign(
+            posterior: Posterior(), slot: 2, state: SelectionState()
+        )
+
+        for location in scene.decisionLocations {
+            // Sample repeatedly: the approach angle is randomised per arm.
+            for _ in 0..<16 {
+                let placement = scene.villagerPlacement(for: location.position)
+                #expect(map.isWalkable(worldPoint: placement.stand),
+                        "villager would wait inside geometry at \(placement.stand)")
+                #expect(map.isWalkable(worldPoint: placement.origin),
+                        "villager would spawn inside geometry at \(placement.origin)")
+                #expect(map.isWalkablePath(from: placement.origin, to: placement.stand),
+                        "villager would walk through geometry from \(placement.origin)")
+                // Six of the thirty anchors are features rather than floor, so
+                // the villager steps aside -- but never further than the zone
+                // it is supposed to be standing in.
+                let drift = hypot(placement.stand.x - location.position.x,
+                                  placement.stand.y - location.position.y)
+                #expect(drift <= 96.0)
+            }
+        }
+
+        // ...and that is in fact where `armDecision` puts it.
+        for location in scene.decisionLocations where location.trait == .thetaI {
+            scene.armDecision(LiveDecision(design: design), at: location)
+            let villager = try #require(armedVillagers(in: scene).first)
+            #expect(map.isWalkable(worldPoint: villager.position))
+            #expect(map.isWalkablePath(from: villager.position, to: location.position))
+        }
+    }
+
+    // MARK: - I2: the social path, which no test could reach before
+
+    @Test func holdingInteractAtAnArrivedVillagerEngages() async throws {
+        let scene = presentedScene()
+        var resolutions: [Resolution] = []
+        scene.onLiveDecisionResolved = { resolutions.append($0) }
+
+        let villager = try arrivedVillager(in: scene)
+        let beside = CGPoint(x: villager.position.x + 20, y: villager.position.y)
+
+        stand(scene, at: beside, at: 10.0)
+        #expect(scene.canInteractNow)
+        #expect(resolutions.isEmpty)
+
+        scene.setInteractPressed(true)
+        stand(scene, at: beside, at: 10.1)   // hold starts
+        stand(scene, at: beside, at: 10.5)   // 0.4s -- not yet
+        #expect(resolutions.isEmpty)
+
+        stand(scene, at: beside, at: 10.8)   // 0.7s >= 0.6s
+        #expect(resolutions.count == 1)
+        #expect(resolutions[0].engaged == true)
+        // Hesitation runs from the frame the player entered the zone.
+        #expect(abs(resolutions[0].zoneDwellSeconds - 0.8) < 1e-6)
+        #expect(armedVillagers(in: scene).isEmpty)
+        #expect(scene.canInteractNow == false)
+    }
+
+    @Test func walkingAwayFromAnArrivedVillagerDeclines() async throws {
+        let scene = presentedScene()
+        var resolutions: [Resolution] = []
+        scene.onLiveDecisionResolved = { resolutions.append($0) }
+
+        let villager = try arrivedVillager(in: scene)
+
+        // Inside the decline radius (80) but never within the 40pt hold
+        // radius -- an approach, then away.
+        stand(scene, at: CGPoint(x: villager.position.x + 60, y: villager.position.y), at: 0.0)
+        #expect(scene.canInteractNow == false)
+        stand(scene, at: CGPoint(x: villager.position.x + 50, y: villager.position.y), at: 0.5)
+        #expect(resolutions.isEmpty)
+
+        stand(scene, at: CGPoint(x: villager.position.x + 300, y: villager.position.y), at: 1.5)
+
+        #expect(resolutions.count == 1)
+        #expect(resolutions[0].engaged == false)
+        #expect(abs(resolutions[0].zoneDwellSeconds - 1.5) < 1e-6)
+        // Closest approach was 50pt of the 80pt zone.
+        #expect(abs(resolutions[0].metrics.approachFrac - (1.0 - 50.0 / 80.0)) < 0.001)
+        #expect(armedVillagers(in: scene).isEmpty)
+    }
+
+    @Test func aPartialHoldReleasedEarlyDoesNotEngage() async throws {
+        let scene = presentedScene()
+        var resolutions: [Resolution] = []
+        scene.onLiveDecisionResolved = { resolutions.append($0) }
+
+        let villager = try arrivedVillager(in: scene)
+        let beside = CGPoint(x: villager.position.x + 20, y: villager.position.y)
+
+        stand(scene, at: beside, at: 0.0)
+        scene.setInteractPressed(true)
+        stand(scene, at: beside, at: 0.1)
+        stand(scene, at: beside, at: 0.4)    // 0.3s of hold
+        scene.setInteractPressed(false)
+        stand(scene, at: beside, at: 0.5)
+        #expect(resolutions.isEmpty)
+
+        // A second, also-too-short hold does not accumulate with the first.
+        scene.setInteractPressed(true)
+        stand(scene, at: beside, at: 0.6)
+        stand(scene, at: beside, at: 0.9)    // 0.3s again
+        scene.setInteractPressed(false)
+        stand(scene, at: beside, at: 1.0)
+
+        #expect(resolutions.isEmpty)
+        #expect(armedVillagers(in: scene).count == 1)
+    }
+
+    /// M6 -- the contract `setInteractPressed` documents, pinned where it is
+    /// actually reachable: a re-fired `true` (a per-frame poll, a re-fired
+    /// SwiftUI onChange) must not restart the hold timer, or every social
+    /// decision would resolve as a decline.
+    @Test func repeatedInteractPressesDoNotRestartTheHold() async throws {
+        let scene = presentedScene()
+        var resolutions: [Resolution] = []
+        scene.onLiveDecisionResolved = { resolutions.append($0) }
+
+        let villager = try arrivedVillager(in: scene)
+        let beside = CGPoint(x: villager.position.x + 20, y: villager.position.y)
+
+        stand(scene, at: beside, at: 0.0)
+        scene.setInteractPressed(true)
+        stand(scene, at: beside, at: 0.1)    // hold starts at 0.1
+        scene.setInteractPressed(true)       // re-fired press, mid-hold
+        scene.setInteractPressed(true)
+        stand(scene, at: beside, at: 0.75)   // 0.65s since 0.1
+
+        #expect(resolutions.count == 1, "a re-fired press restarted the hold timer")
+        #expect(resolutions[0].engaged == true)
+    }
+
+    // MARK: - I3: social idle_ms is stationary time, not elapsed time
+
+    /// SCHEMA §1 defines `idle_ms` as "ms **stationary** inside the scenario
+    /// zone." The social branch logged total elapsed time in the zone, so a
+    /// player who paced around the villager was logged as idle the whole time.
+    @Test func socialIdleMsCountsOnlyStationaryTime() async throws {
+        let scene = presentedScene()
+        var resolutions: [Resolution] = []
+        scene.onLiveDecisionResolved = { resolutions.append($0) }
+
+        let villager = try arrivedVillager(in: scene)
+        let near = CGPoint(x: villager.position.x + 60, y: villager.position.y)
+
+        stand(scene, at: near, at: 0.0)                       // enter, standing
+
+        // A second of walking about inside the zone.
+        scene.setInputVector(CGVector(dx: 1.0, dy: 0.0))
+        scene.playerNode.position = CGPoint(x: near.x + 4, y: near.y)
+        scene.update(1.0)
+
+        stand(scene, at: near, at: 2.0)                       // 1s stationary
+
+        stand(scene, at: CGPoint(x: villager.position.x + 300, y: villager.position.y), at: 3.0)
+
+        #expect(resolutions.count == 1)
+        let metrics = resolutions[0].metrics
+        // 3s in the zone, of which only ~1s was spent standing still.
+        #expect(abs(resolutions[0].zoneDwellSeconds - 3.0) < 1e-6)
+        #expect(metrics.idleMs >= 900 && metrics.idleMs <= 1_100,
+                "idle_ms is stationary time, not elapsed time (got \(metrics.idleMs))")
     }
 }

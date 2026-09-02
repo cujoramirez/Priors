@@ -30,9 +30,15 @@ public final class VillageCoordinator: @unchecked Sendable {
     public var liveDecision: LiveDecision?
 
     // Timing & Monotonic Clock
+    //
+    // There is no stored "presentation instant" any more. SPEC §8.3 defines
+    // the clock that matters as "time between entering a threshold's zone and
+    // resolving it", and arming happens the moment the *previous* decision
+    // resolves, with the player still standing at the previous location. The
+    // arm instant is therefore an internal event that is never logged:
+    // `t_presented` is derived from the scene's measured in-zone dwell, so
+    // SCHEMA §1's `rt_ms = t_decided − t_presented` stays exactly true.
     public private(set) var sessionStartInstant: ContinuousClock.Instant
-    private var scenarioPresentationInstant: ContinuousClock.Instant?
-    private var scenarioPresentationSeconds: Double = 0.0
 
     // Logged Data
     public private(set) var decisions: [DecisionRecord] = []
@@ -90,17 +96,27 @@ public final class VillageCoordinator: @unchecked Sendable {
         guard currentSlot < Scenarios.decisionCount else { return }
         guard liveDecision == nil else { return }
 
+        // The player has to exist before anything else happens: the view's
+        // retry loop ticks at 20 Hz until the scene is presented, and
+        // `selectDesign` is not free. Nothing below it may consume a slot or
+        // mutate state on a tick that is going to bail out anyway.
+        guard let player = scene.playerNode else { return }
+
         let design = ADOSelector.selectDesign(
             posterior: posterior,
             slot: currentSlot,
             state: selectionState
         )
-        let decision = LiveDecision(design: design)
+        // SCHEMA §1 — `predicted_engage` and the four `posterior_*` fields are
+        // captured HERE, before the choice is known, and travel with the
+        // armed decision. They used to be read at resolution: numerically the
+        // same, because the posterior is untouched in between, but honest by
+        // accident rather than by construction.
+        let decision = LiveDecision(design: design, capturedFrom: posterior)
         let wantedTrait = decision.isSpatial ? Trait.thetaE : Trait.thetaI
         let candidates = scene.decisionLocations.filter {
             $0.trait == wantedTrait && !usedLocationIDs.contains($0.id)
         }
-        guard let player = scene.playerNode else { return }
         guard let nearest = candidates.min(by: { a, b in
             let da = hypot(a.position.x - player.position.x, a.position.y - player.position.y)
             let db = hypot(b.position.x - player.position.x, b.position.y - player.position.y)
@@ -110,10 +126,6 @@ public final class VillageCoordinator: @unchecked Sendable {
             return
         }
         usedLocationIDs.insert(nearest.id)
-
-        let now = ContinuousClock.now
-        scenarioPresentationInstant = now
-        scenarioPresentationSeconds = monotonicSecondsSinceStart(at: now)
 
         liveDecision = decision
         scene.armDecision(decision, at: nearest)
@@ -135,26 +147,32 @@ public final class VillageCoordinator: @unchecked Sendable {
     @MainActor
     public func resolveLiveDecision(
         engaged: Bool,
+        zoneDwellSeconds: TimeInterval,
         metrics: (approachFrac: Double, backtracks: Int, idleMs: Int),
         movementSampler: MovementSampler,
         scene: VillageScene
     ) {
         guard let decision = liveDecision else { return }
         let design = decision.design
+        assert(decision.priorSnapshot.isRecorded,
+               "a decision that reaches the log must carry the posterior captured when it was armed")
 
+        // SPEC §8.3 — `rt_ms` is the hesitation at the decision, not the walk
+        // to it. The scene measures it from the frame the player entered the
+        // zone; `t_presented` is then derived backwards from it so SCHEMA §1's
+        // `rt_ms = t_decided − t_presented` holds exactly. `eye_window`'s
+        // ±240s tolerance is untouched at this scale.
         let now = ContinuousClock.now
-        let presentationTime = scenarioPresentationInstant ?? now
-        let duration = now - presentationTime
-        let rtMs = Int(duration.components.seconds * 1000 + duration.components.attoseconds / 1_000_000_000_000_000)
+        let dwell = max(0.0, zoneDwellSeconds)
+        let rtMs = Int((dwell * 1000.0).rounded())
         let tDecided = monotonicSecondsSinceStart(at: now)
+        let tPresented = tDecided - Double(rtMs) / 1000.0
 
-        let (meanE, sdE) = posterior.meanSD(.thetaE)
-        let (meanI, sdI) = posterior.meanSD(.thetaI)
-        let predictedEngage = posterior.predictedEngage(price: design.price, trait: design.trait)
+        let snapshot = decision.priorSnapshot
 
         // Evaluate Eye Window (SCHEMA §1)
         let (inEyeWindow, eyeSide) = EventTriggers.eyeWindow(
-            tPresented: scenarioPresentationSeconds,
+            tPresented: tPresented,
             eyeTimestamp: eyeTimestamp
         )
 
@@ -165,7 +183,7 @@ public final class VillageCoordinator: @unchecked Sendable {
             skin: design.skin,
             price: design.price,
             engaged: engaged,
-            tPresented: scenarioPresentationSeconds,
+            tPresented: tPresented,
             tDecided: tDecided,
             rtMs: rtMs,
             approachFrac: metrics.approachFrac,
@@ -173,11 +191,11 @@ public final class VillageCoordinator: @unchecked Sendable {
             idleMs: metrics.idleMs,
             eyeWindow: inEyeWindow,
             eyeSide: eyeSide,
-            posteriorMeanE: meanE,
-            posteriorSDE: sdE,
-            posteriorMeanI: meanI,
-            posteriorSDI: sdI,
-            predictedEngage: predictedEngage,
+            posteriorMeanE: snapshot.meanE,
+            posteriorSDE: snapshot.sdE,
+            posteriorMeanI: snapshot.meanI,
+            posteriorSDI: snapshot.sdI,
+            predictedEngage: snapshot.predictedEngage,
             isRepeatOf: design.isRepeatOf
         )
 

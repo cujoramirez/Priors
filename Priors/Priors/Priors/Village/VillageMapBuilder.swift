@@ -83,6 +83,39 @@ public struct VillageMapData {
     public var deadSpaceFraction: Double {
         walkableTileCount > 0 ? Double(deadSpaceTileCount) / Double(walkableTileCount) : 0.0
     }
+
+    /// `[row][col]`, true where the tile is floor rather than wall, water,
+    /// cottage or canopy — i.e. the builder's grid codes 0 and 1.
+    ///
+    /// Published so the scene can check a spot before putting something in
+    /// the world at it. A waiting villager (SPEC §8.3) used to spawn at an
+    /// unchecked random offset, which could drop it inside a cottage or on
+    /// the pond and walk it through geometry.
+    public var walkableTiles: [[Bool]] = []
+
+    public func isWalkable(worldPoint point: CGPoint) -> Bool {
+        guard !walkableTiles.isEmpty else { return true }
+        let col = Int((point.x / tileSize).rounded(.down))
+        let row = Int((point.y / tileSize).rounded(.down))
+        guard row >= 0, row < walkableTiles.count,
+              col >= 0, col < walkableTiles[row].count else { return false }
+        return walkableTiles[row][col]
+    }
+
+    /// True when every point along the straight segment is walkable, sampled
+    /// at half-tile steps. A villager walks in a straight line, so a walkable
+    /// start and end is not enough on its own.
+    public func isWalkablePath(from start: CGPoint, to end: CGPoint) -> Bool {
+        let distance = hypot(end.x - start.x, end.y - start.y)
+        let steps = max(1, Int((distance / (tileSize / 2)).rounded(.up)))
+        for i in 0...steps {
+            let t = CGFloat(i) / CGFloat(steps)
+            let p = CGPoint(x: start.x + (end.x - start.x) * t,
+                            y: start.y + (end.y - start.y) * t)
+            if !isWalkable(worldPoint: p) { return false }
+        }
+        return true
+    }
 }
 
 @MainActor
@@ -226,6 +259,13 @@ public final class VillageMapBuilder {
         // 8. Calculate Dead Space Ratio
         var walkable = 0
         var deadSpace = 0
+        var walkableTiles = Array(repeating: Array(repeating: false, count: Self.mapCols),
+                                  count: Self.mapRows)
+        for r in 0..<Self.mapRows {
+            for c in 0..<Self.mapCols {
+                walkableTiles[r][c] = grid[r][c] != 2
+            }
+        }
         for r in 2..<(Self.mapRows - 2) {
             for c in 2..<(Self.mapCols - 2) {
                 if grid[r][c] == 0 {
@@ -241,6 +281,7 @@ public final class VillageMapBuilder {
         mapData.doorPositions = doorPositions
         mapData.walkableTileCount = walkable
         mapData.deadSpaceTileCount = deadSpace
+        mapData.walkableTiles = walkableTiles
 
         return (mapData, decisionLocations, eyeNode)
     }

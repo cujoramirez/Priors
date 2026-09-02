@@ -12,7 +12,7 @@ import UIKit
 import PriorsEngine
 
 @MainActor
-public class VillageScene: SKScene, SKPhysicsContactDelegate {
+public class VillageScene: SKScene {
     // Root Effect Node for continuous palette decay (SPEC §8.1)
     public private(set) var worldEffectNode: SKEffectNode!
     public private(set) var worldNode: SKNode!
@@ -42,9 +42,16 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
     // decisions — the world resolves itself.
     private var armedThreshold: ThresholdNode?
     private var armedVillager: WaitingVillagerNode?
+    private var retiredDecisionLayer: SKNode!
     // One tuple parameter, not two arguments: the resolution travels as a
     // single named tuple, so the extra parens around it are load-bearing.
-    public var onLiveDecisionResolved: (((engaged: Bool, metrics: (approachFrac: Double, backtracks: Int, idleMs: Int))) -> Void)?
+    //
+    // `zoneDwellSeconds` is SPEC §8.3's hesitation: "time between entering a
+    // threshold's zone and resolving it." Only the scene knows that instant —
+    // the coordinator's arm time is the moment the *previous* decision
+    // resolved, half a village away — so it is measured here and travels with
+    // the resolution. It is what `rt_ms` is made of (SCHEMA §1).
+    public var onLiveDecisionResolved: (((engaged: Bool, zoneDwellSeconds: TimeInterval, metrics: (approachFrac: Double, backtracks: Int, idleMs: Int))) -> Void)?
 
     private var isInsideArmedZone: Bool = false
     private var isInteractHeld: Bool = false
@@ -71,7 +78,9 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
     private static let refillRadius: CGFloat = 56
 
     // Zone Exploration Metrics (SCHEMA §1, §7.1)
-    private var zoneEntryTime: TimeInterval = 0.0
+    /// nil until the player is inside the armed zone. Was a `0.0` sentinel,
+    /// which is a value `currentTime` genuinely takes in tests.
+    private var zoneEntryTime: TimeInterval?
     private var zoneLastMovementTime: TimeInterval = 0.0
     private var zoneIdleDuration: TimeInterval = 0.0
     private var zoneMinDistance: CGFloat = 1000.0
@@ -110,8 +119,11 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
     private func setupWorld() {
         guard worldNode == nil else { return }
 
+        // No `contactDelegate`: nothing in this scene resolves on contact.
+        // Decision zones are distance-based (`updateArmedDecision`), and the
+        // delegate that used to be installed here had no `didBegin(_:)`
+        // behind it — every contact was computed and discarded.
         physicsWorld.gravity = .zero
-        physicsWorld.contactDelegate = self
 
         // 1. World Effect Node (Dusk shift)
         worldEffectNode = SKEffectNode()
@@ -120,6 +132,16 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
 
         worldNode = SKNode()
         worldEffectNode.addChild(worldNode)
+
+        // Resolved decision nodes are moved here to fade out. They leave
+        // `worldNode.children` on the resolving frame, so "exactly one
+        // decision is live" stays literally true, but they are still on
+        // screen for the length of the fade — a villager that vanished the
+        // instant the player walked past was hard to tell apart from SPEC
+        // §8.3's forbidden "reacts to being declined."
+        retiredDecisionLayer = SKNode()
+        retiredDecisionLayer.name = "retired_decisions"
+        worldNode.addChild(retiredDecisionLayer)
 
         // 2. Build 80x60 Village Tilemap
         let buildResult = VillageMapBuilder.shared.buildVillage(in: worldNode)
@@ -354,6 +376,8 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
 
             if inZone, !isInsideArmedZone {
                 isInsideArmedZone = true
+                // SPEC §8.3 — this instant, not the arm instant, is where
+                // `rt_ms` starts.
                 zoneEntryTime = currentTime
                 zoneLastMovementTime = currentTime
                 zoneIdleDuration = 0.0
@@ -379,9 +403,13 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
                 isInsideArmedZone = false
                 let engaged = zoneMinDistance <= threshold.commitRadius
                 let metrics = currentZoneMetrics(zoneRadius: threshold.radius)
-                threshold.removeFromParent()
+                let dwell = zoneDwellSeconds(at: currentTime)
+                retire(threshold)
                 armedThreshold = nil
-                onLiveDecisionResolved?((engaged: engaged, metrics: metrics))
+                zoneEntryTime = nil
+                // Everything above is reset first: the callback re-enters
+                // `armDecision` synchronously.
+                onLiveDecisionResolved?((engaged: engaged, zoneDwellSeconds: dwell, metrics: metrics))
             }
             return
         }
@@ -400,7 +428,9 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
             // zone here is the decline radius, which opens once the villager
             // has stopped and the player has come inside it.
             if villager.hasArrived, dist <= declineDistance {
-                if zoneEntryTime == 0.0 {
+                if zoneEntryTime == nil {
+                    // Same as the spatial case: `rt_ms` starts here, on first
+                    // approach, not when the decision was armed (SPEC §8.3).
                     zoneEntryTime = currentTime
                     zoneLastMovementTime = currentTime
                     zoneIdleDuration = 0.0
@@ -426,23 +456,25 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
             if close, isInteractHeld {
                 if interactHoldStartTime == nil { interactHoldStartTime = currentTime }
                 if currentTime - (interactHoldStartTime ?? currentTime) >= Self.socialHoldDuration {
-                    let metrics = currentSocialMetrics(zoneRadius: declineDistance, currentTime: currentTime)
-                    villager.removeFromParent()
+                    let metrics = currentZoneMetrics(zoneRadius: declineDistance)
+                    let dwell = zoneDwellSeconds(at: currentTime)
+                    retire(villager)
                     armedVillager = nil
                     interactHoldStartTime = nil
-                    zoneEntryTime = 0.0
-                    onLiveDecisionResolved?((engaged: true, metrics: metrics))
+                    zoneEntryTime = nil
+                    onLiveDecisionResolved?((engaged: true, zoneDwellSeconds: dwell, metrics: metrics))
                 }
                 return
             }
             interactHoldStartTime = nil
 
-            if villager.hasArrived, dist > declineDistance, zoneEntryTime > 0.0 {
-                let metrics = currentSocialMetrics(zoneRadius: declineDistance, currentTime: currentTime)
-                villager.removeFromParent()
+            if villager.hasArrived, dist > declineDistance, zoneEntryTime != nil {
+                let metrics = currentZoneMetrics(zoneRadius: declineDistance)
+                let dwell = zoneDwellSeconds(at: currentTime)
+                retire(villager)
                 armedVillager = nil
-                zoneEntryTime = 0.0
-                onLiveDecisionResolved?((engaged: false, metrics: metrics))
+                zoneEntryTime = nil
+                onLiveDecisionResolved?((engaged: false, zoneDwellSeconds: dwell, metrics: metrics))
             }
         }
     }
@@ -452,21 +484,37 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
             || (a == .left && b == .right) || (a == .right && b == .left)
     }
 
+    /// SCHEMA §1's three observed zone quantities, for both halves of §8.3 —
+    /// the social branch measures them against the decline radius, and is
+    /// otherwise identical.
+    ///
+    /// `idleMs` is "ms **stationary** inside the scenario zone". The social
+    /// branch used to compute its own, from total elapsed time in the zone,
+    /// which is a different quantity: a player who paced around the villager
+    /// for four seconds without ever standing still was logged as four
+    /// seconds idle.
     private func currentZoneMetrics(zoneRadius: CGFloat) -> (approachFrac: Double, backtracks: Int, idleMs: Int) {
         let approach = max(0.0, min(1.0, Double(1.0 - (zoneMinDistance / zoneRadius))))
         return (approachFrac: approach, backtracks: zoneBacktrackCount, idleMs: Int(zoneIdleDuration * 1000))
     }
 
-    /// Social counterpart. `approachFrac` and `backtracks` are the same
-    /// observed quantities as the spatial case, measured against the decline
-    /// radius. `idleMs` deliberately keeps its social meaning — elapsed time
-    /// since the player first entered the zone, not stationary time — and is
-    /// guarded so an unset `zoneEntryTime` can never leak system uptime into
-    /// a SCHEMA §1 field.
-    private func currentSocialMetrics(zoneRadius: CGFloat, currentTime: TimeInterval) -> (approachFrac: Double, backtracks: Int, idleMs: Int) {
-        let approach = max(0.0, min(1.0, Double(1.0 - (zoneMinDistance / zoneRadius))))
-        let idle = zoneEntryTime > 0.0 ? Int((currentTime - zoneEntryTime) * 1000) : 0
-        return (approachFrac: approach, backtracks: zoneBacktrackCount, idleMs: idle)
+    /// SPEC §8.3's hesitation — how long the player has been inside the armed
+    /// zone. 0 if they somehow resolved without entering it.
+    private func zoneDwellSeconds(at currentTime: TimeInterval) -> TimeInterval {
+        guard let entry = zoneEntryTime else { return 0.0 }
+        return max(0.0, currentTime - entry)
+    }
+
+    /// Moves a resolved decision node out of the live world and fades it,
+    /// rather than deleting it under the player's eyes (SPEC §8.3).
+    private func retire(_ node: SKNode) {
+        guard let layer = retiredDecisionLayer else {
+            node.removeFromParent()
+            return
+        }
+        node.removeFromParent()
+        layer.addChild(node)
+        node.run(.sequence([.fadeOut(withDuration: 0.6), .removeFromParent()]))
     }
 
     private func updateEyeProximity(currentTime: TimeInterval) {
@@ -512,14 +560,14 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
     /// resolves, but this keeps the invariant true even under a
     /// double-call).
     public func armDecision(_ decision: LiveDecision, at location: DecisionLocation) {
-        armedThreshold?.removeFromParent()
+        if let previous = armedThreshold { retire(previous) }
         armedThreshold = nil
-        armedVillager?.removeFromParent()
+        if let previous = armedVillager { retire(previous) }
         armedVillager = nil
         isInsideArmedZone = false
         isInteractHeld = false
         interactHoldStartTime = nil
-        zoneEntryTime = 0.0
+        zoneEntryTime = nil
 
         if decision.isSpatial {
             let node = ThresholdNode(decision: decision)
@@ -528,12 +576,63 @@ public class VillageScene: SKScene, SKPhysicsContactDelegate {
             armedThreshold = node
         } else {
             let node = WaitingVillagerNode(decision: decision, id: "social_\(location.id)")
-            let approachOffset = CGPoint(x: CGFloat.random(in: -60...60), y: CGFloat.random(in: -60...60))
+            let placement = villagerPlacement(for: location.position)
             worldNode.addChild(node)
-            node.walkIn(to: location.position,
-                        from: CGPoint(x: location.position.x + approachOffset.x,
-                                      y: location.position.y + approachOffset.y))
+            node.walkIn(to: placement.stand, from: placement.origin)
             armedVillager = node
         }
+    }
+
+    /// Where a waiting villager stands, and where it walks in from.
+    ///
+    /// Both used to be unchecked: the villager was placed on the decision
+    /// anchor and walked in from a random point up to ~85pt away, so it could
+    /// materialise inside a cottage or on the pond and walk out through the
+    /// geometry. Six of the thirty authored anchors are features rather than
+    /// floor — a door, a pier, a cellar lip. A threshold does not care (it is
+    /// a zone drawn on the ground, and the player crosses near it) but a
+    /// villager is a body, so it stands on the nearest walkable ground to the
+    /// anchor and approaches along a line that is walkable end to end.
+    ///
+    /// The approach ring is sampled from a random start angle, so the
+    /// direction the villager comes from stays unpredictable, and shrinks if
+    /// the spot is hemmed in.
+    func villagerPlacement(for anchor: CGPoint) -> (origin: CGPoint, stand: CGPoint) {
+        guard let map = mapData else { return (anchor, anchor) }
+        let stand = nearestWalkablePoint(to: anchor, in: map)
+        let startAngle = CGFloat.random(in: 0..<(2 * .pi))
+        for distance in [CGFloat(80), 56, 34] {
+            for i in 0..<12 {
+                let angle = startAngle + CGFloat(i) * (.pi / 6.0)
+                let candidate = CGPoint(x: stand.x + cos(angle) * distance,
+                                        y: stand.y + sin(angle) * distance)
+                if map.isWalkable(worldPoint: candidate),
+                   map.isWalkablePath(from: candidate, to: stand) {
+                    return (candidate, stand)
+                }
+            }
+        }
+        // Hemmed in on every side: stand there without a walk-in rather than
+        // walking through a wall to arrive.
+        return (stand, stand)
+    }
+
+    private func nearestWalkablePoint(to anchor: CGPoint, in map: VillageMapData) -> CGPoint {
+        if map.isWalkable(worldPoint: anchor) { return anchor }
+        let tile = VillageMapBuilder.tileSize
+        var best: (point: CGPoint, distance: CGFloat)?
+        for step in 1...3 {
+            let radius = tile * CGFloat(step)
+            for i in 0..<16 {
+                let angle = CGFloat(i) * (.pi / 8.0)
+                let candidate = CGPoint(x: anchor.x + cos(angle) * radius,
+                                        y: anchor.y + sin(angle) * radius)
+                guard map.isWalkable(worldPoint: candidate) else { continue }
+                let d = hypot(candidate.x - anchor.x, candidate.y - anchor.y)
+                if best == nil || d < best!.distance { best = (candidate, d) }
+            }
+            if let found = best { return found.point }
+        }
+        return anchor
     }
 }

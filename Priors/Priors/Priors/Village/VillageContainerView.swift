@@ -70,6 +70,7 @@ public struct VillageContainerView: View {
             villageScene.onLiveDecisionResolved = { result in
                 coordinator.resolveLiveDecision(
                     engaged: result.engaged,
+                    zoneDwellSeconds: result.zoneDwellSeconds,
                     metrics: result.metrics,
                     movementSampler: movementSampler,
                     scene: villageScene
@@ -84,6 +85,10 @@ public struct VillageContainerView: View {
                 coordinator.lanternCount = remaining
             }
             coordinator.armNextDecision(scene: villageScene)
+            // `.onAppear` can run more than once for the same view (a
+            // re-entered tab, a recomposed parent). Leaving the previous timer
+            // running would double the poll rate every time.
+            pollTimer?.invalidate()
             pollTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
                 Task { @MainActor in
                     canInteract = villageScene.canInteractNow

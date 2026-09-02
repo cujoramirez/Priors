@@ -231,6 +231,9 @@ struct PriorsTests {
             // which then fed posterior.update, predictedEngage,
             // updateLanternCount and selectionState's repeatSourcePrice.
             let armedPrice = decision.design.price
+            let armedPredictedEngage = coordinator.posterior.predictedEngage(
+                price: armedPrice, trait: decision.design.trait
+            )
 
             let engaged = (slot % 2 == 0)
             if shadowSlots.contains(slot) {
@@ -240,8 +243,12 @@ struct PriorsTests {
                 ).willEngage
                 expectedShadowCorrect.append(predicted == engaged)
             }
+            // SPEC §8.3 — the in-zone dwell the scene measured is what
+            // becomes `rt_ms`; the coordinator no longer times anything of
+            // its own.
             coordinator.resolveLiveDecision(
                 engaged: engaged,
+                zoneDwellSeconds: 1.4,
                 metrics: (approachFrac: 0.65, backtracks: 1, idleMs: 400),
                 movementSampler: sampler,
                 scene: scene
@@ -251,6 +258,13 @@ struct PriorsTests {
             #expect(coordinator.decisions.count == slot + 1)
             #expect(coordinator.decisions[slot].price == armedPrice)
             #expect(coordinator.decisions[slot].engaged == engaged)
+            #expect(coordinator.decisions[slot].rtMs == 1400)
+            // SCHEMA §1's stated invariant, exactly.
+            let logged = coordinator.decisions[slot]
+            #expect(abs((logged.tDecided - logged.tPresented) - Double(logged.rtMs) / 1000.0) < 1e-9)
+            // SCHEMA §1 — the posterior snapshot is the one captured when the
+            // slot was armed, before this choice was folded in.
+            #expect(logged.predictedEngage == armedPredictedEngage)
             // Scored on resolution of the predicted slot, so the count tracks
             // how many shadow slots have resolved -- not how many shadows have
             // finished their 10s walk.
