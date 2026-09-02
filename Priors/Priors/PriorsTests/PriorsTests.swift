@@ -208,6 +208,13 @@ struct PriorsTests {
         // and each resolution arms the next slot itself.
         coordinator.armNextDecision(scene: scene)
 
+        // SPEC §6.2 — the shadow spawns at ARM time and its prediction must be
+        // scored against the slot it predicted. Recomputed here from the
+        // posterior as it stood when that slot was armed, which is exactly the
+        // posterior the coordinator used.
+        let shadowSlots: Set<Int> = [16, 20, 24, 28]
+        var expectedShadowCorrect: [Bool] = []
+
         for slot in 0..<30 {
             #expect(coordinator.currentSlot == slot)
             let decision = try #require(coordinator.liveDecision)
@@ -217,7 +224,22 @@ struct PriorsTests {
             // is what routes spatial vs. social presentation.
             #expect(decision.isSpatial == (decision.design.trait == .thetaE))
 
+            // Regression guard: the logged price must be the price that was
+            // actually armed. The old handleChoice re-ran selectDesign to
+            // recover the design, and its random +/-0.02 jitter (SPEC §5.4)
+            // meant the record could describe a price the player never saw --
+            // which then fed posterior.update, predictedEngage,
+            // updateLanternCount and selectionState's repeatSourcePrice.
+            let armedPrice = decision.design.price
+
             let engaged = (slot % 2 == 0)
+            if shadowSlots.contains(slot) {
+                let predicted = EventTriggers.shadowTarget(
+                    posterior: coordinator.posterior,
+                    nextDesign: decision.design
+                ).willEngage
+                expectedShadowCorrect.append(predicted == engaged)
+            }
             coordinator.resolveLiveDecision(
                 engaged: engaged,
                 metrics: (approachFrac: 0.65, backtracks: 1, idleMs: 400),
@@ -227,10 +249,18 @@ struct PriorsTests {
 
             #expect(coordinator.currentSlot == slot + 1)
             #expect(coordinator.decisions.count == slot + 1)
+            #expect(coordinator.decisions[slot].price == armedPrice)
+            #expect(coordinator.decisions[slot].engaged == engaged)
+            // Scored on resolution of the predicted slot, so the count tracks
+            // how many shadow slots have resolved -- not how many shadows have
+            // finished their 10s walk.
+            #expect(coordinator.shadowCorrect.count == shadowSlots.filter { $0 <= slot }.count)
         }
 
         #expect(coordinator.currentSlot == 30)
         #expect(coordinator.liveDecision == nil)
+        #expect(coordinator.shadowAppearances.count == 4)
+        #expect(coordinator.shadowCorrect == expectedShadowCorrect)
         #expect(completedRecord != nil)
         guard let record = completedRecord else { return }
 

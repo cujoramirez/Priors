@@ -47,6 +47,14 @@ public final class VillageCoordinator: @unchecked Sendable {
     /// player never sees the same spot light up twice. The map ships exactly
     /// 19 theta_e and 11 theta_i spots, matching `Scenarios.traitSchedule`.
     private var usedLocationIDs: Set<Int> = []
+    /// SPEC §6.2 / SCHEMA §3 — the shadow spawns at ARM time, but the player
+    /// then has to walk to the location, which routinely takes longer than the
+    /// shadow's fixed 10s walk. Scoring on the shadow's arrival would compare
+    /// the prediction against `decisions.last`, which by then is usually the
+    /// PREVIOUS slot's outcome. So the prediction is parked here, keyed to the
+    /// slot it was made for, and scored in `resolveLiveDecision` when that
+    /// exact slot resolves.
+    private var pendingShadowPrediction: (slot: Int, prediction: EventTriggers.ShadowPrediction)?
 
     @ObservationIgnored
     public var onSessionComplete: (@MainActor (SessionRecord) -> Void)?
@@ -175,6 +183,14 @@ public final class VillageCoordinator: @unchecked Sendable {
 
         decisions.append(record)
 
+        // SPEC §6.2 — score the shadow against the slot it actually predicted,
+        // not against whatever landed in `decisions` by the time it finished
+        // walking.
+        if let pending = pendingShadowPrediction, pending.slot == currentSlot {
+            shadowCorrect.append(pending.prediction.willEngage == engaged)
+            pendingShadowPrediction = nil
+        }
+
         // Update Bayesian Engine
         posterior.update(price: design.price, trait: design.trait, engaged: engaged)
         selectionState.commit(design)
@@ -241,12 +257,11 @@ public final class VillageCoordinator: @unchecked Sendable {
             targetPoint = CGPoint(x: scene.playerNode.position.x - 120, y: scene.playerNode.position.y - 120)
         }
 
-        scene.spawnShadow(predictedDestination: targetPoint) { [weak self] in
-            guard let self = self else { return }
-            // Scored afterwards against actual decision
-            let wasCorrect = (self.decisions.last?.engaged == prediction.willEngage)
-            self.shadowCorrect.append(wasCorrect)
-        }
+        pendingShadowPrediction = (slot: currentSlot, prediction: prediction)
+
+        // Arrival is purely cosmetic now: the prediction is scored when this
+        // slot resolves, however long the player takes to get there.
+        scene.spawnShadow(predictedDestination: targetPoint) {}
     }
 
     @MainActor
