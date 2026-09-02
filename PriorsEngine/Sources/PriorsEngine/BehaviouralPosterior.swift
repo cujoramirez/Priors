@@ -50,22 +50,18 @@ public struct BehaviouralPosterior: Sendable, ChoicePosterior {
 
     /// Prior width on the per-player baseline response time, in log space.
     ///
-    /// SCHEMA §7 gives LogNormal(log 2000, **0.4**), and that prior is
-    /// deliberately not reused. It is informative enough to do harm: it is what
-    /// lets a uniformly slow response be read as "near the line" rather than
-    /// "slow player", so a population slower than SCHEMA §7 assumes would be
-    /// systematically misread. `experiments/rt_base_prior.py` sweeps it — at
-    /// sd 0.4 a 2.5×-slower population costs accuracy (0.0221, calibration
-    /// 1.03); at sd 0.8 the channel is flat across every population tested
-    /// (0.0176–0.0183, calibration ≥ 1.28) at no cost when SCHEMA §7 is right.
-    ///
-    /// Vaguer is strictly better here. `rt_base` is a nuisance parameter we have
-    /// no verified knowledge of, and nothing is gained by pretending otherwise.
-    /// A test guards against tightening this casually.
+    /// SPEC §8.3 — `rt_base` is real hesitation now, not button-click
+    /// latency. Weak regardless: `experiments/rt_base_prior.py` showed sd 0.8
+    /// keeps the channel flat (cost < 0.001 MAE) across population medians
+    /// from 1200ms to 5000ms — see the implementation plan's Task 2 for how
+    /// 1500ms below was derived (it is a stated design assumption, not
+    /// measured data). A test guards against tightening this casually.
     public static let rtBasePriorSD = 0.8
 
-    /// SCHEMA §7's median, and the centre of the `rt_base` prior.
-    public static let rtBaseMedianMs = 2000.0
+    /// The `rt_base` prior's centre. See Task 2 of the game-layer plan for
+    /// the derivation (zone radius 36pt at 110pt/s travel speed, plus
+    /// perceive-and-decide time).
+    public static let rtBaseMedianMs = 1500.0
 
     /// Near-line RT inflation. SCHEMA §7 asserts 2.5; we infer it.
     ///
