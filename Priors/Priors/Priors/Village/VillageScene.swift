@@ -258,7 +258,9 @@ public class VillageScene: SKScene {
     /// appeared on screen.
     ///
     /// It now opens at a golden-hour 0.42 — enough that the lantern carves a
-    /// visible pool out of the light — and ends at 0.95, near-total night.
+    /// visible pool out of the light — and ends at 0.86. It stops short of
+    /// 0.95 because the palette anchors darken too, and the two together were
+    /// leaving the back half of a session unreadable.
     /// Still monotonic, still never fully opaque: the player must always be
     /// able to see the path.
     public func updateDusk(forMeanPosteriorSD sd: Double) {
@@ -266,13 +268,27 @@ public class VillageScene: SKScene {
         let step = paletteController.step(forMeanPosteriorSD: sd)
         paletteController.apply(to: effectNode, step: step)
         lightingOverlay?.alpha = Self.vignetteAlpha(forStep: step)
+        // SPEC §4 and the prologue both make the point that the valley lives
+        // on carried fire. As the palette decays the lantern is increasingly
+        // the only thing the player can navigate by, so its reach grows to
+        // meet the dark rather than being swallowed with everything else.
+        playerNode?.setLanternReach(Self.lanternReach(forStep: step))
+    }
+
+    /// The carried light grows as the world darkens: 1.0 at golden hour,
+    /// 1.6 at full night. Presentation only — it reaches nothing the model
+    /// reads, and it is what keeps the path legible once the vignette and
+    /// the palette anchors have both bottomed out.
+    static func lanternReach(forStep step: Double) -> CGFloat {
+        let clamped = min(max(step, 0), 5)
+        return CGFloat(1.0 + (clamped / 5.0) * 0.6)
     }
 
     /// Exposed so the decay curve is pinned by a test rather than by eye.
     /// Monotonic, and never fully opaque — the player must still see the path.
     static func vignetteAlpha(forStep step: Double) -> CGFloat {
         let clamped = min(max(step, 0), 5)
-        return CGFloat(0.42 + (clamped / 5.0) * 0.53)
+        return CGFloat(0.42 + (clamped / 5.0) * 0.44)
     }
 
     public override func update(_ currentTime: TimeInterval) {

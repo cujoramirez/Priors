@@ -32,6 +32,10 @@ public class PlayerNode: SKSpriteNode {
     /// Purely decorative: it is drawn under the figure and reads by nothing.
     /// The dusk vignette darkens the village around it, so the pool is what
     /// the player actually navigates by as the palette decays.
+    /// Carries `setLanternReach`, so the flicker below can own the glow's
+    /// own scale without the two colliding.
+    private let lanternGlowHolder = SKNode()
+
     private let lanternGlow: SKSpriteNode = {
         let glow = SKSpriteNode(texture: PlayerNode.lanternGlowTexture(),
                                 size: CGSize(width: 150, height: 150))
@@ -46,7 +50,8 @@ public class PlayerNode: SKSpriteNode {
         super.init(texture: defaultTexture, color: .clear, size: CGSize(width: 32, height: 32))
         self.name = "player"
         self.zPosition = 10
-        addChild(lanternGlow)
+        lanternGlowHolder.addChild(lanternGlow)
+        addChild(lanternGlowHolder)
         // A carried flame is never perfectly steady. Slow and shallow, so it
         // reads as flame rather than as a pulsing UI element.
         lanternGlow.run(.repeatForever(.sequence([
@@ -54,6 +59,17 @@ public class PlayerNode: SKSpriteNode {
             .group([.fadeAlpha(to: 0.58, duration: 2.3), .scale(to: 1.04, duration: 2.3)]),
         ])))
         setupPhysics()
+    }
+
+    /// Grows the carried light as the village darkens. See
+    /// `VillageScene.lanternReach(forStep:)`.
+    /// Scales the HOLDER, not the glow itself. The flicker below is also a
+    /// scale action, and two scale actions on one node fight each other —
+    /// the flame would have stuttered between reach and breath.
+    public func setLanternReach(_ factor: CGFloat) {
+        let clamped = min(max(factor, 0.6), 2.0)
+        lanternGlowHolder.removeAction(forKey: "lantern_reach")
+        lanternGlowHolder.run(.scale(to: clamped, duration: 0.6), withKey: "lantern_reach")
     }
 
     /// Soft warm radial falloff, built once and shared.

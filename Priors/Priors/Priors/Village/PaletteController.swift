@@ -33,25 +33,35 @@ public struct PaletteStepAnchor: Sendable {
 public final class PaletteController: @unchecked Sendable {
     /// Clearly marked palette anchors table (SPEC §8.1)
     public static let anchors: [PaletteStepAnchor] = [
-        // SPEC §8.1 names step 0 "warm amber", step 3 "cool", step 4 "grey-blue".
-        // Step 0 previously read r0.95/g0.82/b0.68 with a 6% vignette, which
-        // over Kenney's (106,190,88) grass and its very saturated dirt is not
-        // amber at all — it renders as flat midday green with a neon-orange
-        // path. `saturation` is what tames that dirt, and until now nothing
-        // read it (see `apply`).
+        // SPEC §8.1 names step 0 "warm amber", step 3 "cool", step 4
+        // "grey-blue", and the vignette's own contract is that it is "never
+        // fully opaque — the player must still see the path".
         //
-        // Step 0: Golden hour (> 0.20 SD) — low warm sun, olive grass, brick path
+        // An earlier pass drove the late steps with a large negative
+        // brightness bias (-0.42 at step 4, -0.52 at step 5). That bias is
+        // -107/255, which is larger than what the multipliers leave of a
+        // mid-tone, so grass (106,190,88) clamped to (0,0,0) at step 4 —
+        // the village went mathematically black BEFORE the vignette was
+        // applied, and the back half of every session was unplayable.
+        //
+        // Darkening is now the vignette's job. The matrix shifts hue and
+        // desaturates; the bias stays near zero so nothing clamps. Measured
+        // mid-field luminance runs 57 -> 13 across the ladder while the
+        // lantern pool holds 116 -> 69, which is the fiction working as
+        // designed: as the valley goes out, only carried fire reads.
+        //
+        // Step 0: Golden hour (> 0.20 SD) — low warm sun, olive grass
         PaletteStepAnchor(step: 0.0, hex: "#D89A4C", r: 0.92, g: 0.70, b: 0.52, saturation: 0.70, brightness: -0.12, contrast: 1.08),
-        // Step 1: Last light (0.15–0.20 SD) — the amber going out of the sky
-        PaletteStepAnchor(step: 1.0, hex: "#A9743E", r: 0.86, g: 0.66, b: 0.50, saturation: 0.62, brightness: -0.17, contrast: 1.07),
-        // Step 2: Twilight (0.10–0.15 SD) — blue hour; warmth only near lanterns
-        PaletteStepAnchor(step: 2.0, hex: "#6B6486", r: 0.70, g: 0.62, b: 0.72, saturation: 0.50, brightness: -0.24, contrast: 1.05),
+        // Step 1: Last light (0.15–0.20 SD)
+        PaletteStepAnchor(step: 1.0, hex: "#B0783F", r: 0.84, g: 0.66, b: 0.52, saturation: 0.62, brightness: -0.10, contrast: 1.07),
+        // Step 2: Twilight (0.10–0.15 SD) — blue hour
+        PaletteStepAnchor(step: 2.0, hex: "#6B6486", r: 0.68, g: 0.62, b: 0.74, saturation: 0.50, brightness: -0.08, contrast: 1.05),
         // Step 3: Cool (0.06–0.10 SD) — SPEC §8.1's named "cool"
-        PaletteStepAnchor(step: 3.0, hex: "#454C61", r: 0.50, g: 0.54, b: 0.72, saturation: 0.36, brightness: -0.32, contrast: 1.02),
+        PaletteStepAnchor(step: 3.0, hex: "#454C61", r: 0.52, g: 0.56, b: 0.76, saturation: 0.38, brightness: -0.06, contrast: 1.03),
         // Step 4: Grey-blue night (< 0.06 SD) — SPEC §8.1's named "grey-blue"
-        PaletteStepAnchor(step: 4.0, hex: "#252A36", r: 0.32, g: 0.36, b: 0.54, saturation: 0.20, brightness: -0.42, contrast: 1.00),
+        PaletteStepAnchor(step: 4.0, hex: "#252A36", r: 0.38, g: 0.42, b: 0.62, saturation: 0.24, brightness: -0.04, contrast: 1.01),
         // Step 5: Reading — room tone, the village all but gone
-        PaletteStepAnchor(step: 5.0, hex: "#161A21", r: 0.18, g: 0.20, b: 0.32, saturation: 0.08, brightness: -0.52, contrast: 0.97),
+        PaletteStepAnchor(step: 5.0, hex: "#161A21", r: 0.24, g: 0.27, b: 0.42, saturation: 0.12, brightness: -0.03, contrast: 0.99),
     ]
 
     public init() {}

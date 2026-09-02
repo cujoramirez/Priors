@@ -78,7 +78,24 @@ struct PriorsTests {
         let p0 = controller.interpolatedParameters(forStep: 0.0)
         let p5 = controller.interpolatedParameters(forStep: 5.0)
         #expect(p0.saturation > p5.saturation)
-        #expect(p0.brightness > p5.brightness)
+
+        // Deliberately NOT `p0.brightness > p5.brightness`. That assertion
+        // encoded the assumption that darkening is done by the brightness
+        // bias, and following it is what drove step 4's bias to -0.42 —
+        // larger than the multipliers leave of a mid-tone, so the ground
+        // clamped to black and the back half of a session was unplayable.
+        //
+        // Darkening is the channel multipliers' and the vignette's job now.
+        // What has to fall monotonically is the light that actually reaches
+        // the screen, which is what `theGroundStaysVisibleAtEveryPaletteStep`
+        // measures and what this checks the endpoints of.
+        func groundLuminance(_ p: (r: CGFloat, g: CGFloat, b: CGFloat, saturation: CGFloat, brightness: CGFloat, contrast: CGFloat)) -> Double {
+            let r = max(0, min(255, 106 * Double(p.r) + Double(p.brightness) * 255))
+            let g = max(0, min(255, 190 * Double(p.g) + Double(p.brightness) * 255))
+            let b = max(0, min(255, 88 * Double(p.b) + Double(p.brightness) * 255))
+            return 0.299 * r + 0.587 * g + 0.114 * b
+        }
+        #expect(groundLuminance(p0) > groundLuminance(p5))
     }
 
     @MainActor
@@ -790,6 +807,40 @@ struct PriorsTests {
         """)
     }
 
+    /// SPEC §8.1's vignette contract is "never fully opaque — the player must
+    /// still see the path". That is a statement about what reaches the screen,
+    /// and nothing was checking it.
+    ///
+    /// An earlier tuning pass drove step 4's brightness bias to -0.42, which
+    /// is -107/255 — larger than what the channel multipliers leave of a
+    /// mid-tone. Kenney's grass (106,190,88) clamped to (0,0,0) at step 4, so
+    /// the village went black BEFORE the vignette was even applied and the
+    /// back half of every session was unplayable. This pins the floor.
+    @MainActor
+    @Test func theGroundStaysVisibleAtEveryPaletteStep() async throws {
+        let controller = PaletteController()
+        // The two colours that make up nearly all of the walkable map.
+        let samples: [(name: String, rgb: (Double, Double, Double))] = [
+            ("grass", (106, 190, 88)),
+            ("path", (200, 120, 70)),
+        ]
+
+        for tenth in 0...50 {
+            let step = Double(tenth) / 10.0
+            let p = controller.interpolatedParameters(forStep: step)
+            for sample in samples {
+                let r = max(0, min(255, sample.rgb.0 * Double(p.r) + Double(p.brightness) * 255))
+                let g = max(0, min(255, sample.rgb.1 * Double(p.g) + Double(p.brightness) * 255))
+                let b = max(0, min(255, sample.rgb.2 * Double(p.b) + Double(p.brightness) * 255))
+                let luminance = 0.299 * r + 0.587 * g + 0.114 * b
+                #expect(
+                    luminance > 12.0,
+                    "\(sample.name) reaches luminance \(luminance) at palette step \(step); SPEC §8.1 requires the player can still see the path"
+                )
+            }
+        }
+    }
+
     /// SPEC §8.1 — the decay has to be visible, and it only goes one way.
     ///
     /// The vignette first ran 0.70 -> 0.95 (opened at night, whole schedule
@@ -804,9 +855,13 @@ struct PriorsTests {
         let end = VillageScene.vignetteAlpha(forStep: 5)
         #expect(start > 0.15, "at \(start) alpha there is no lantern pool; SPEC §8.1 step 0 is warm amber, not daylight")
         #expect(start < 0.55, "the village opens at \(start) alpha; step 0 is dusk, not night")
-        #expect(end > 0.90, "fully decayed vignette is only \(end)")
+        // Capped at 0.86 rather than pushed higher: the palette anchors darken
+        // too, and the two together were leaving the village unreadable. The
+        // real floor is `theGroundStaysVisibleAtEveryPaletteStep`, which
+        // measures what reaches the screen instead of one contributor to it.
+        #expect(end > 0.80, "fully decayed vignette is only \(end)")
         #expect(end < 1.0, "the player must still be able to see the path")
-        #expect(end - start > 0.5, "the decay spans only \(end - start) of alpha")
+        #expect(end - start > 0.40, "the decay spans only \(end - start) of alpha")
 
         var previous = -1.0
         for tenth in 0...50 {
