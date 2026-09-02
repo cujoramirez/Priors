@@ -290,7 +290,7 @@ public class VillageScene: SKScene {
         }
 
         // Smooth Camera Follow with clamping
-        updateCameraPosition()
+        updateCameraPosition(currentTime: currentTime)
 
         // Armed live decision: zone dwell, crossing / hold resolution
         updateArmedDecision(currentTime: currentTime)
@@ -348,7 +348,16 @@ public class VillageScene: SKScene {
         ]))
     }
 
-    private func updateCameraPosition() {
+    /// Seconds since the previous frame, clamped. Used only for presentation
+    /// smoothing — never for anything SCHEMA §1 records, which all read
+    /// `currentTime` directly.
+    private var lastFrameTime: TimeInterval?
+    /// Camera smoothing rate, per second. Chosen so that at 60fps a frame
+    /// moves the camera the same 12% it did when this was a flat per-frame
+    /// lerp: 1 - exp(-7.67/60) = 0.12.
+    private static let cameraFollowRate: Double = 7.67
+
+    private func updateCameraPosition(currentTime: TimeInterval) {
         guard let player = playerNode, let cam = sceneCamera, let map = mapData else { return }
 
         let halfWidth = self.size.width / 2.0
@@ -362,8 +371,24 @@ public class VillageScene: SKScene {
         let targetX = min(max(player.position.x, minX), maxX)
         let targetY = min(max(player.position.y, minY), maxY)
 
-        // Smooth camera lerp
-        let lerpFactor: CGFloat = 0.12
+        // Smooth camera lerp, frame-rate independent. A flat per-frame factor
+        // made the camera converge twice as fast on a 120Hz ProMotion device
+        // as on a 60Hz one — the same walk framed differently depending on the
+        // hardware. Exponential smoothing against real elapsed time instead.
+        // dt is clamped so a stalled frame (a breakpoint, a backgrounded app,
+        // a test stepping `update` by whole seconds) cannot snap the camera.
+        guard let previous = lastFrameTime else {
+            // First frame. An SKCameraNode starts at the world origin — the
+            // bottom-left corner of the map — so easing from there meant the
+            // village opened on an unrequested swoop across the rooftops
+            // before settling on the player. Start framed correctly instead.
+            lastFrameTime = currentTime
+            cam.position = CGPoint(x: targetX, y: targetY)
+            return
+        }
+        let dt = min(max(currentTime - previous, 0), 0.05)
+        lastFrameTime = currentTime
+        let lerpFactor = CGFloat(1.0 - exp(-Self.cameraFollowRate * dt))
         cam.position.x += (targetX - cam.position.x) * lerpFactor
         cam.position.y += (targetY - cam.position.y) * lerpFactor
     }
