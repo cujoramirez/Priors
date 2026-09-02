@@ -19,7 +19,7 @@ public final class VillageCoordinator: @unchecked Sendable {
     public let eyeEnabled: Bool
 
     // Bayesian Engine State
-    public var posterior = Posterior()
+    public var posterior = BehaviouralPosterior()
     public var selectionState = SelectionState()
     public var currentSlot: Int = 0
     public var lanternCount: Int = 3
@@ -192,7 +192,7 @@ public final class VillageCoordinator: @unchecked Sendable {
         }
 
         // Update Bayesian Engine
-        posterior.update(price: design.price, trait: design.trait, engaged: engaged)
+        posterior.update(price: design.price, trait: design.trait, engaged: engaged, rtMs: Double(rtMs))
         selectionState.commit(design)
 
         // Update Lantern Inventory

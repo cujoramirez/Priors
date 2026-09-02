@@ -44,6 +44,15 @@ public enum EventTriggers {
         return ShadowPrediction(willEngage: p > 0.5, probability: p)
     }
 
+    /// Same as above, for callers holding a `BehaviouralPosterior` (Task 12:
+    /// `VillageCoordinator.posterior` is now behavioural). `predictedEngage`
+    /// isn't part of `ChoicePosterior`, so this is a concrete overload rather
+    /// than a generic — kept in lockstep with the `Posterior` overload above.
+    public static func shadowTarget(posterior: BehaviouralPosterior, nextDesign: Design) -> ShadowPrediction {
+        let p = posterior.predictedEngage(price: nextDesign.price, trait: nextDesign.trait)
+        return ShadowPrediction(willEngage: p > 0.5, probability: p)
+    }
+
     /// SPEC §6.2 — appearances begin after decision 15.
     public static let shadowFirstDecisionIndex = 15
 
