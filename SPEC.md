@@ -1,6 +1,6 @@
 # Priors — SPEC
 
-Version 1.3. This file is the contract. Python and Swift both read it.
+Version 1.4. This file is the contract. Python and Swift both read it.
 If something contradicts this file, this file wins. If something is missing
 here, stop and ask — do not invent it.
 
@@ -544,6 +544,30 @@ Never cut: the argument screen, the receipts, the consent timing, the eye.
 ---
 
 ## 15. Changelog
+
+### v1.4 — the documents are revisable; the instrument is not
+
+Owner ruling, 2026-09-03: *"the spec, copy and other docs may be incomplete —
+I approve of revision and it's loose, not a tight rule, as long as we are
+making a functional game, clear story line, etc."*
+
+**What that means, and its one exception.** Wording, structure, layout, art
+direction, map dimensions, narration and task framing are revisable by whoever
+is doing the work, in service of the game actually being a game. **The §2.9
+invariants are the exception and remain binding**: the thirty ADO-selected
+decisions, what each measures, and how each resolves do not vary — because
+they are what make the collected data real, and a report built on a broken
+instrument is the one failure this project cannot recover from. A revision
+that touches §2, §4, §5 or §8.3 is still a decision to be recorded here.
+
+Recorded corrections and retirements:
+
+| Clause | Was | Now | Why |
+|---|---|---|---|
+| §8 map size | *"~4 screens of walkable space (roughly 80×60 tiles)"* | **~4 screens, roughly 52×30 tiles** | The two figures contradicted each other and the village was built to the wrong one. A landscape screen is ~932×430pt; at 32pt tiles that is 29×13 ≈ 390 tiles, so four screens is ~1,560. 80×60 is 4,800 — **12.3 screens**. That is why the village reads as empty: nine buildings and a pond scattered over three times the intended area. 52×30 = 1,560 = 4.0 screens exactly. |
+| Art direction | DCSS supplies thresholds and landmarks alongside Kenney | **Single pack. Kenney Tiny Town only.** | Owner's verdict on the DCSS thresholds in place: *"it's so out of place dawg."* DCSS is dungeon-interior art — dark, heavy, high-detail — and a free-standing arch in a meadow has no wall to belong to. The tonal clash does not improve with size. A second pack is also a permanent face-audit burden: its landmark set is full of idols and statues, and one was already rejected as an uncontrolled watching-eye stimulus (§6.3). |
+| "2× pixel density" | Every DCSS sprite drawn at exactly 2×, 64pt | **Retired.** | It was the stated justification for mixing packs, and the code kept it nowhere — containment forced 50pt and 40pt sprites. With one pack there is nothing to reconcile. Kenney is 16px at 32pt everywhere. |
+| Decision art containment | Nothing in a decision form may extend outside the 36pt zone | **Retired.** Art may extend past the zone; the commit sill must stay visible and the art centred on the zone so every approach angle is equivalent (§8.3). | An invented rule, not a derived one. The zone is where measurement begins, not a frame the art must fit inside — and it is why a threshold rendered 50pt against a 192pt cottage and read as a prop. `zoneRadius` 36.0 and `commitZoneRadius` 14.0 are unchanged and remain frozen. |
 
 ### v1.3 — the mask may become a game
 
