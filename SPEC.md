@@ -1,6 +1,6 @@
 # Priors — SPEC
 
-Version 1.2. This file is the contract. Python and Swift both read it.
+Version 1.3. This file is the contract. Python and Swift both read it.
 If something contradicts this file, this file wins. If something is missing
 here, stop and ask — do not invent it.
 
@@ -20,12 +20,18 @@ here, stop and ask — do not invent it.
 
 ## 1. What the product is
 
-A cheerful top-down pixel game with a mundane task. The player roams freely
-for ~13 minutes. A behavioural model is fit to their choices throughout —
-disclosed plainly on screen 1, then never mentioned again. At the end the
-machine reads them back with receipts and lets them argue.
+A top-down pixel game with a mundane task, set in a village losing its
+light. The player roams freely for ~13 minutes. A behavioural model is fit to
+their choices throughout — disclosed plainly on screen 1, then never mentioned
+again. At the end the machine reads them back with receipts and lets them
+argue.
 
-**Not:** a personality test, a horror game with a data gimmick, or anything
+**Tone is the designer's to set.** The sunless framing, the dread and the dark
+are deliberate: golden hour at palette step 0 decaying to genuine night. What
+tone may never do is lie (§2.1, §2.2), make the model visible (§2.3), or
+change what a decision measures (§2.9).
+
+**Not:** a personality test, a data gimmick wearing a horror skin, or anything
 comparable between players.
 
 ---
@@ -44,7 +50,11 @@ These are not preferences. Violating any of them breaks the project.
    prediction display, no score. Visible observation changes behaviour
    (watching-eye effect ≈ 35% shift) and would corrupt the traits.
 4. **Avatar play only.** No named protagonist, no personality, no score,
-   no fail state, no optimal path, no leaderboard, no share button.
+   no fail state, no leaderboard, no share button. **No optimal path through
+   the thirty measured decisions** — no branch of any template is ever the
+   better one, and nothing in the game may imply otherwise. The delivery
+   round *around* those decisions is ordinary game content and may have a
+   best order (§8.4).
 5. **No verdicts.** Report claims are behaviour + price. Never "you are X".
 6. **Shared blame.** The consent screen was built to be tapped through.
    The report says so. Never accuse the player alone.
@@ -52,6 +62,32 @@ These are not preferences. Violating any of them breaks the project.
    backend. "Nothing leaves the device" must be literally true.
 8. **Core ML never decides what to say. Foundation Models never decides
    what is true.** The Bayesian posterior is the sole source of claims.
+9. **The mask may become a game. The instrument may not become visible.**
+   Narrative, wayfinding, act structure, quest framing and task presentation
+   may vary freely. The thirty ADO-selected decisions (§4, §5), what each one
+   measures, and how each one resolves (§8.3) are **invariant under every one
+   of those variations**. Two players who take completely different routes
+   through the story must still have been asked the same psychometric
+   questions.
+
+   Three consequences, each of which has its own failure mode:
+
+   - **Nothing may reward the engaged branch of any template.** A quest that
+     thanks the player for giving a lantern (`GIVE`), or that completes when
+     they cross a threshold (`PATH`), gives engaging an in-game payoff — and
+     θ_i and θ_e stop measuring the trait and start measuring goal-pursuit.
+     Narrative may motivate *movement*. It may never attach approval,
+     progress, reward, sound or story to one side of a measured choice.
+   - **Nothing may mark a decision.** Wayfinding (§8.4) may point at
+     deliveries, the well, and places worth seeing. It may never mark,
+     highlight, count, or route toward a threshold or a waiting villager: a
+     marked decision announces that something is being measured there, which
+     is §2.3 by another route, and navigational salience pulls one branch
+     before the player has chosen.
+   - **Route freedom is not decision freedom.** The player may reach the
+     thirty decisions in any order the story likes; the schedule (§5.1), the
+     quotas (§4), the ADO-chosen prices (§5) and the resolution rules (§8.3)
+     do not vary with the route taken.
 
 ---
 
@@ -214,6 +250,13 @@ It walks toward the destination the model predicts the player will choose next.
 **It must be genuinely predictive.** If the model is wrong, the shadow walks
 the wrong way. Never script it correct.
 
+**It is never explained.** v1.3's licence to narrate (§2.9) does not reach the
+shadow: no line of copy, no marker, no sound cue, no journal entry, and no
+acknowledgement anywhere in the game names it, points at it, or accounts for
+it. Naming it would make the model visible (§2.3) — the shadow is the one
+element that *is* the model acting on its own prediction. Work on the shadow
+is confined to making it read as authored rather than as a rendering fault.
+
 ### 6.3 The eye
 Two white 2×2 pixel dots in a doorway or window, 3 seconds, once per session,
 at a randomised decision index in [14, 20]. No sound. No reaction.
@@ -276,7 +319,8 @@ Log as `self_predicted_theta_e`. The gap vs measured θ_e is a headline claim.
   player offers (§8.3), and otherwise does nothing.
 - Task: deliver lanterns to houses before dark.
 - Dusk is a continuous palette shift — it is the timer. No numeric timer.
-- HUD: lantern count only.
+- HUD and wayfinding: **see §8.4.** Through v1.2 this line read *"HUD:
+  lantern count only."*
 - **Villagers have no faces.** Faces invite role-play.
 - **Dead space is required.** At least 30% of walkable area contains nothing.
   Pointless exploration is the best data in the run. Log it.
@@ -293,7 +337,24 @@ Palette and audio degrade on posterior confidence, not on time.
 | < 0.06 | 4 (grey-blue) | 1 (pad only) |
 | reading | 5 | 0 (room tone only) |
 
-Never change key or tempo. Only remove layers. Never add anything back.
+The table above is a **readout of posterior confidence** and stays one: the
+five stems drop monotonically as SD falls, and that mapping does not change.
+
+Through v1.2 this section also read *"Never change key or tempo. Only remove
+layers. Never add anything back."* **That clause is lifted (§15, v1.3).** On
+top of the decay table, the score may change key, change tempo, add layers,
+modulate, and set whatever mood each act calls for. Two limits remain, and
+both are about the instrument rather than the music:
+
+- **Nothing in the audio may be contingent on a decision's outcome.** No
+  stinger on resolve, no swell on crossing a threshold, no cue that differs
+  between `engaged: true` and `engaged: false`, no change when a villager is
+  declined. This is §8.3's villager who never reacts, applied to the score: a
+  soundtrack that approves is feedback, and feedback on a measured choice
+  changes every choice after it (§2.9).
+- **Diegetic ambience is a separate bus.** Wind, water, interior hum and
+  footsteps are place, not score. They are never a sixth stem, never enter
+  the decay table, and are governed only by the two rules above.
 
 ### 8.2 Diegetic pricing
 
@@ -336,6 +397,44 @@ that stops it.
   reading that new `rt_ms` distribution requires re-centring the `rt_base`
   prior (SCHEMA §7) first; that re-fit is tracked as its own piece of work,
   not assumed complete by this section.
+
+### 8.4 Wayfinding and task legibility
+
+Through v1.2, §8 read *"HUD: lantern count only"*, and the plan derived from
+it *"no minimap, no objective marker, no quest log"*. That ban is lifted
+(§15, v1.3). The driver was a real defect: delivery fired on silent proximity
+to a door with no affordance, no approach feedback and no way for a player
+carrying nothing to learn where to refill, so the round of deliveries was
+invisible and the game had no legible task at all.
+
+**Permitted.** Objective markers, a compass or screen-edge indicator, a
+minimap, a quest-shaped framing of the lantern round, act structure,
+environmental storytelling, and narration at whatever density the story
+needs. HUD may carry task state — lanterns carried, houses still dark.
+
+**Preferred, not required.** Diegetic legibility first, because it costs the
+world nothing: an unlit window that reads as *asking*, a lit one that reads as
+*answered*, a well that reads as a source. A UI marker is the fallback for
+what the world cannot say, not the first tool reached for.
+
+**Forbidden.** Each of these is a §2 rule, not a style note:
+
+- Marking, highlighting, counting or routing toward any decision location —
+  a threshold or a waiting villager (§2.9).
+- Any readout that reads as performance: elapsed time, a percentage, an
+  efficiency figure, a rating, a rank, a completion grade (§2.4 score).
+- Any quest, marker or narration whose completion depends on the engaged
+  branch of a measured template (§2.9). A quest may say *the village needs
+  light*. It may never say *and you did well to give yours away*.
+- Anything about the model, the posterior, or the player's own tendencies
+  (§2.3).
+
+**Dead space survives this.** §8's 30% requirement stands, and wayfinding
+strengthens rather than weakens it: a player who *knows* where the task is and
+walks somewhere else has chosen, and that is the exploration the run is
+logging. Undirected wandering in undifferentiated meadow was never the same
+measurement. Markers point at the task; they must not point at everything, or
+there is nowhere left to go pointlessly.
 
 ---
 
@@ -445,6 +544,35 @@ Never cut: the argument screen, the receipts, the consent timing, the eye.
 ---
 
 ## 15. Changelog
+
+### v1.3 — the mask may become a game
+
+Owner amendment, 2026-09-03, decided in one pass rather than allowed to erode
+one convenient edit at a time. Its governing rule is the owner's own:
+
+> *"Make the story, narration, quest and tasks clearer end to end with the
+> psychological framework probings, so no matter the walkthrough or story we
+> still have the same parameters."*
+
+That is now §2.9, a non-negotiable: **the mask may become a game; the
+instrument may not become visible.** Everything loosened below is loosened
+because it belongs to the mask. Nothing that touches what a decision measures
+moved.
+
+| Clause | Read, through v1.2 | Now | Why |
+|---|---|---|---|
+| §1 | *"A cheerful top-down pixel game… Not: … a horror game with a data gimmick"* | Tone is the designer's; the sunless framing and dread are deliberate | Formalises the owner ruling of 2026-09-02, which had been living in a plan document while the contract still said the opposite. A contradiction sitting in the contract is how drift starts. |
+| §2.4 | *"no optimal path"* (unqualified) | No optimal path **through the thirty measured decisions**; the delivery round may have a best order | The clause exists so no branch of a template is the right answer. It was never meant to forbid a sensible route between cottages, and read literally it forbade making the task legible at all. |
+| §8 | *"HUD: lantern count only"*, and no objective markers | §8.4: markers, compass, minimap, quest framing and narration permitted; decision locations may never be marked | Bug A — delivery was silent proximity with no affordance, no approach feedback and no way to learn where to refill, so the task was invisible and the player could not tell the game from a rendering fault. Diegetic wayfinding is preferred; the ban is not the mechanism that protects the instrument, §2.9 is. |
+| §8.1 | *"Never change key or tempo. Only remove layers. Never add anything back."* | Lifted. The decay table stays a readout of posterior confidence; above it the score is free, subject to two limits | The clause was protecting against feedback, and was doing it by banning music. The narrower rules — nothing contingent on a decision's outcome, ambience on its own bus — protect the same thing without costing the score its range. |
+| §6.2 | (silent on explanation) | The shadow is **never** explained, narrated, marked or acknowledged | Decided explicitly so that v1.3's licence to narrate cannot later be read as reaching it. The shadow is the model acting on its prediction; naming it is §2.3. |
+
+**Unchanged, and deliberately restated here** because each is what makes the
+loosening safe: no modal during a decision (§8.3); the villager never reacts
+to being declined (§8.3); no deception (§2.2); the model never visible
+(§2.3); no network (§2.7); receipts on every claim (§2.1, §9.1); `rt_ms` =
+zone-entry → resolve (§8.3); and the thirty decisions, six templates and
+ADO-chosen prices of §4 and §5.
 
 ### v1.2 — game layer ratified
 

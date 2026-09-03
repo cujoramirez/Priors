@@ -16,15 +16,18 @@
 
 Copied verbatim. Every task's requirements implicitly include this section.
 
-- SPEC §1: *"A cheerful top-down pixel game with a mundane task."* — **Owner ruling (2026-09-02): the sunless/psychological-horror framing is deliberate and permitted. Golden hour at step 0 decaying to genuine night stands.** Record any further tonal drift as a decision, never as an implementation detail.
+**Updated 2026-09-03 for SPEC.md v1.3.** Four constraints below were loosened by owner amendment and one was added; each is marked. `SPEC.md` §15 records what each clause used to say and why it changed. Read v1.3 before treating any strikethrough here as still binding.
+
+- **SPEC §2.9 (new, v1.3): the mask may become a game; the instrument may not become visible.** Narrative, wayfinding, act structure and quest framing may vary freely. The thirty ADO-selected decisions, what each measures and how each resolves are invariant under all of it. In particular: nothing may reward the engaged branch of any template, and nothing may mark a decision location.
+- ~~SPEC §1: *"A cheerful top-down pixel game with a mundane task."*~~ — **Loosened in v1.3.** Tone is the designer's to set; the sunless framing and dread are deliberate, golden hour at step 0 decaying to genuine night. Tone may still never lie, make the model visible, or change what a decision measures.
 - SPEC §2.2: *"No deception during play. No swapped choices, no fake feedback, no manufactured doubt. The eye is a real manipulation whose effect is measured and disclosed — that is the only permitted 'trick'."* Atmosphere is not deception; fake feedback is. Nothing in this program may tell the player something untrue about their own actions.
 - SPEC §2.3: *"The model is never visible during play. No confidence meter, no prediction display, no score."*
-- SPEC §2.4: *"Avatar play only. No named protagonist, no personality, no score, no fail state, no optimal path, no leaderboard, no share button."*
+- SPEC §2.4: *"Avatar play only. No named protagonist, no personality, no score, no fail state, no leaderboard, no share button."* **Loosened in v1.3:** "no optimal path" now scopes to the thirty measured decisions only — the delivery round may have a best order.
 - SPEC §2.7: *"No network. No analytics, no crash reporting, no CloudKit, no backend."*
 - SPEC §8: *"Villagers have no faces. Faces invite role-play."*
-- SPEC §8: *"HUD: lantern count only."* No minimap, no objective marker, no quest log.
+- ~~SPEC §8: *"HUD: lantern count only."* No minimap, no objective marker, no quest log.~~ — **Loosened in v1.3, see SPEC §8.4.** Markers, compass, minimap, quest framing and narration are permitted; HUD may carry task state. Diegetic legibility is preferred, not required. Still forbidden: marking any decision location, any readout that reads as performance, and any quest whose completion depends on the engaged branch.
 - SPEC §8: *"Dead space is required. At least 30% of walkable area contains nothing. Pointless exploration is the best data in the run. Log it."*
-- SPEC §8.1: *"Never change key or tempo. Only remove layers. Never add anything back."* The five stems drop monotonically on posterior SD.
+- ~~SPEC §8.1: *"Never change key or tempo. Only remove layers. Never add anything back."*~~ — **Lifted in v1.3.** The five-stem decay table stays a readout of posterior confidence and still drops monotonically; above it the score may change key, tempo and layers freely. Two limits remain: nothing in the audio may be contingent on a decision's outcome, and diegetic ambience is a separate bus, never a sixth stem.
 - SPEC §8.3: The villager *"never follows, never repeats itself, and never reacts to being declined."*
 - SPEC-GAME.md:172: *"No names, no personalities, no dialogue trees."*
 - **Frozen files — never modify:** `Posterior.swift`, `BehaviouralPosterior.swift` likelihood math (`choiceLogLik`/`rtLogLik`/`update`), `ADOSelector.swift`, `ClaimGenerator.swift`. A genuine need to touch one is a finding for the owner, not an edit.
@@ -46,7 +49,7 @@ The village is flat for four separate reasons, and they need different fixes. Na
 
 **4. Sound does not situate.** Five procedural stems decay on posterior SD, correctly and monotonically. But there is no sound *of a place* — no water at the pond, no wind at the exposed north, no interior hum near lit cottages, and no feedback for delivering a lantern or crossing a threshold. §8.1 governs the *music*; it says nothing about diegetic ambience, which is a separate bus and must never be mistaken for a sixth stem.
 
-**What this program deliberately does not do:** dialogue, quest logs, objective markers, named villagers, NPC reactions to the player's choices. Each is either forbidden by the constraints above or destroys stealth assessment — and per the owner's own framework synthesis (§4.3, Mislevy/Shute), stealth assessment is what removes the Hawthorne Effect and social-desirability bias. Reintroducing a modal turns `rt_ms` from hesitation into reading speed.
+**What this program deliberately does not do:** dialogue, named villagers, or NPC reactions to the player's choices. (Quest logs and objective markers moved from "forbidden" to "permitted, and out of this program's scope" under SPEC v1.3 §8.4 — they belong to the task-legibility work, not to the four subsystems below.) Each is either forbidden by the constraints above or destroys stealth assessment — and per the owner's own framework synthesis (§4.3, Mislevy/Shute), stealth assessment is what removes the Hawthorne Effect and social-desirability bias. Reintroducing a modal turns `rt_ms` from hesitation into reading speed.
 
 ---
 
