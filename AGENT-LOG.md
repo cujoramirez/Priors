@@ -805,3 +805,73 @@ named protagonist, villagers have no faces), and should not be popped or
 merged without its own ratification pass — see the SDD ledger
 (`.superpowers/sdd/2026-09-02-game-layer-in-world-decisions/progress.md`)
 for the full incident record.
+
+## SPEC v1.3, and the delivery task made visible — closed
+Status: done — SPEC amended with owner sign-off; Bug A fixed and rendered
+Files touched: `SPEC.md`, `docs/superpowers/plans/2026-09-02-village-depth-program.md`,
+`Priors/Priors/Priors/Village/VillageScene.swift`,
+`Priors/Priors/PriorsTests/TaskLegibilityTests.swift`.
+
+**The amendment.** `SPEC.md` is v1.3. The contract had been contradicting
+itself — §1 said "cheerful… not a horror game" while the owner's 2026-09-02
+sunless ruling lived only in a plan document — and §8's "HUD: lantern count
+only" was forbidding the very thing that would have made the game's task
+legible. Both were loosened deliberately, in one pass, rather than a clause at
+a time. The governing rule is new §2.9: **the mask may become a game; the
+instrument may not become visible.** Narrative, wayfinding and task structure
+vary freely; the thirty ADO-selected decisions, what they measure and how they
+resolve do not. Its three consequences are written out, and the one that
+matters most is that nothing may reward the engaged branch of a template.
+
+Owner chose the loosest option on both open questions: full wayfinding
+(markers, compass, minimap permitted) and full audio freedom (key and tempo
+may shift). New §8.4 and the amended §8.1 carry the guardrails that follow
+from §2.9 rather than from taste — no marking a decision location, no readout
+that reads as performance, nothing in the audio contingent on a decision's
+outcome, ambience on its own bus. The shadow (§6.2) is now explicitly never
+explained, so a later reading of "clearer narration" cannot reach it.
+
+**Bug A.** Delivery was silent proximity within 40pt of a door: no affordance
+marked a house as needing light, nothing changed on approach, and a player
+carrying nothing had no way to learn the well existed. The only artefact was a
+26×26 hard-edged additive tan square over a delivered door, which the owner
+correctly read as a missing texture. Now: every dark house carries a cold pool
+on its doorstep; a separate warm pool rises with proximity while the cold one
+recedes, so the approach reads as *warmth arriving* rather than as a blue
+light getting bluer; the delivered window is a soft warm falloff, parented to
+`worldNode` so it decays with the palette instead of sitting outside the dusk
+filter as it used to; and a chevron on the camera points at the well exactly
+while the player is stranded — no lantern, houses still dark.
+
+**Delivery deliberately stays on proximity, and a test pins that.** The
+owner's report was "i can't even interact with them", and the obvious fix —
+wire Interact to delivery — is the wrong one. Delivery lights a window and
+visibly advances the task; if the same button did delivery and `GIVE`, the
+player would learn "press Interact = good outcome" and carry that association
+onto one branch of a measured template, which is §2.9's first consequence.
+`theInteractButtonIsNeverADeliveryButton` fails if a later session wires it up.
+
+**Three bugs found only by rendering it**, all the same bug: the asking pool's
+fade-out, the lit window's fade-in, and the chevron's fade-in each expressed
+their *state* through an `SKAction`, so each was invisible whenever the scene
+had not run. All three now set their state directly and use actions only for
+decoration. Two more came from looking: the light was briefly moved onto the
+doorway itself and vanished, because a cold pool on grey-blue stone is
+nothing — it belongs on the ground, where it contrasts and where light falling
+out of a door is what a top-down view can show; and the approach ramp was
+`t²`, which left the first two thirds of the walk with no response in it.
+
+Not verifiable by rendering: a camera's children do not come back through
+`SKView.texture(from:)`, so the chevron's placement is asserted as geometry
+and its shape was confirmed by drawing the same path into the world.
+
+Verified: PriorsEngine 78/78; scoped `-only-testing:PriorsTests` 83 tests in
+8 suites, all passed (76 before, 7 new). Release build launched with
+`-startPhase village` and screenshotted; offscreen renders of a cottage at
+far / mid-approach / delivered, and of the well seen by a stranded player,
+read as three and two distinct states respectively.
+
+Not done, and named rather than left implicit: no new `COPY.md` wording — the
+fix is wordless by design, and the in-village act banners in
+`VillageContainerView` remain inline copy that `COPY.md` does not govern.
+Bug B (NPC teleporting) and Bug C (the early shadow report) are untouched.

@@ -66,10 +66,37 @@ public class VillageScene: SKScene {
     // ignoring it. Delivery happens on proximity rather than on the interact
     // button, which stays reserved for scenarios.
     //
-    // Progress is shown only by the windows lighting up. SPEC §8 restricts the
-    // HUD to the lantern count, so there is no checklist and no marker.
-    private var undeliveredDoors: [CGPoint] = []
+    // Progress is shown by the windows themselves: a dark house asks, a lit
+    // one has been answered. SPEC §8.4 permits a HUD marker now, and exactly
+    // one is used — the well indicator, and only when the player's hands are
+    // empty. Nothing marks, counts or routes toward a *decision* (§2.9).
+    public private(set) var undeliveredDoors: [CGPoint] = []
     private var litWindows: [CGPoint: SKNode] = [:]
+    /// A cold pool over every door that still has no light in it. SPEC §8.4:
+    /// "an unlit window that reads as asking". Driven per frame rather than by
+    /// an `SKAction`, because the approach warmth (`doorWarmth`) writes the
+    /// same alpha and scale and two writers would fight.
+    private var askingWindows: [CGPoint: SKSpriteNode] = [:]
+    /// The carried lantern's light reaching a dark doorway as the player
+    /// closes on it. A separate warm sprite rather than a tint on the cold
+    /// one, because brightening a blue pool only makes it bluer — what the
+    /// approach has to read as is *warmth arriving*.
+    private var approachGlows: [CGPoint: SKSpriteNode] = [:]
+    private var wellPool: SKSpriteNode?
+    private var wellIndicator: SKNode?
+
+    /// Exposed for tests: the chevron cannot be verified by rendering it,
+    /// because a camera's children do not come back through
+    /// `SKView.texture(from:)`. Its placement is asserted instead.
+    var wellIndicatorNode: SKNode? { wellIndicator }
+
+    public var askingWindowCount: Int { askingWindows.count }
+    public var litWindowCount: Int { litWindows.count }
+
+    /// True when the player is carrying nothing and houses are still dark —
+    /// the one genuine dead end in the game. SPEC §8.4 permits the marker;
+    /// carrying a lantern is its own instruction, so it goes away again.
+    public private(set) var wellIndicatorActive: Bool = false
     public var onLanternDelivered: ((Int) -> Void)?
     public var onLanternsRefilled: ((Int) -> Void)?
     public private(set) var lanternsCarried: Int = 3
@@ -81,8 +108,25 @@ public class VillageScene: SKScene {
     /// behind them at all.
     public private(set) var carryAllowance: Int = 3
     public static let carryCapacity = 3
-    private static let deliveryRadius: CGFloat = 40
+    static let deliveryRadius: CGFloat = 40
     private static let refillRadius: CGFloat = 56
+    /// How far out a dark house starts responding to being approached.
+    static let doorWarmthRadius: CGFloat = 120
+
+    /// 1 at the doorstep, 0 at `doorWarmthRadius`, smooth all the way between.
+    ///
+    /// Continuity is the whole point: a step change at `deliveryRadius` would
+    /// make delivery read as a trigger the player crossed. A house that warms
+    /// as you close on it makes it somewhere you arrived.
+    static func doorWarmth(distance: CGFloat) -> CGFloat {
+        guard distance < doorWarmthRadius else { return 0 }
+        let t = 1.0 - max(distance, 0) / doorWarmthRadius
+        // Was `t * t`, which left the first two thirds of the approach with
+        // almost no warmth in it — the house only responded once the player
+        // was practically on the doorstep, which is where they no longer need
+        // telling. Eases in earlier while staying strictly monotonic.
+        return t * (0.4 + 0.6 * t)
+    }
 
     public func setLanternsCarried(_ count: Int) {
         self.lanternsCarried = max(0, count)
@@ -168,6 +212,40 @@ public class VillageScene: SKScene {
         self.decisionLocations = buildResult.decisionLocations
         self.eyeNode = buildResult.eyeNode
 
+        // Every dark house asks (SPEC §8.4).
+        for door in undeliveredDoors {
+            let lightPoint = Self.windowPosition(forDoor: door)
+
+            let ask = SKSpriteNode(texture: Self.coldPoolTexture(),
+                                   size: CGSize(width: 76, height: 76))
+            ask.position = lightPoint
+            ask.zPosition = 6.5
+            ask.blendMode = .alpha
+            ask.alpha = Self.askingBaseAlpha
+            worldNode.addChild(ask)
+            askingWindows[door] = ask
+
+            let reach = SKSpriteNode(texture: Self.warmPoolTexture(),
+                                     size: CGSize(width: 96, height: 96))
+            reach.position = lightPoint
+            reach.zPosition = 6.6
+            reach.blendMode = .add
+            reach.alpha = 0
+            worldNode.addChild(reach)
+            approachGlows[door] = reach
+        }
+
+        // The well already has a sprite; this is the light on it, so that
+        // "where does light come from" is answerable from across a field.
+        let pool = SKSpriteNode(texture: Self.warmPoolTexture(),
+                                size: CGSize(width: 150, height: 150))
+        pool.position = mapData.playerSpawnPosition
+        pool.zPosition = 5.5
+        pool.blendMode = .add
+        pool.alpha = 0.30
+        worldNode.addChild(pool)
+        wellPool = pool
+
         // 3. Player Node
         playerNode = PlayerNode()
         playerNode.position = mapData.playerSpawnPosition
@@ -192,6 +270,18 @@ public class VillageScene: SKScene {
         sceneCamera = SKCameraNode()
         self.camera = sceneCamera
         addChild(sceneCamera)
+
+        // 5b. The well indicator — a chevron on the camera, so it is screen
+        // furniture rather than something standing in the village. Hidden
+        // until the player is empty-handed with houses still dark.
+        let chevron = SKShapeNode(path: Self.chevronPath())
+        chevron.fillColor = UIColor(red: 1.0, green: 0.86, blue: 0.58, alpha: 0.85)
+        chevron.strokeColor = .clear
+        chevron.zPosition = 30
+        chevron.alpha = 0
+        chevron.isHidden = true
+        sceneCamera.addChild(chevron)
+        wellIndicator = chevron
 
         // 6. Atmospheric Dark Dusk Vignette & Radial Lantern Glow
         let vignetteTex = makeLanternVignetteTexture(size: CGSize(width: 512, height: 512))
@@ -319,6 +409,9 @@ public class VillageScene: SKScene {
 
         // The lantern task
         updateDeliveries()
+
+        // And what the village says about it (SPEC §8.4)
+        updateTaskLegibility(currentTime: currentTime)
     }
 
     /// Deliver on arrival, refill at the well. No prompt, no confirmation —
@@ -332,6 +425,12 @@ public class VillageScene: SKScene {
            }) {
             let door = undeliveredDoors.remove(at: idx)
             lanternsCarried -= 1
+            // Removed outright rather than faded out. A fade is an SKAction,
+            // and an SKAction is a dependency on the scene actually running —
+            // the light coming on covers the cut, and the swap is then true
+            // the frame it happens rather than 0.35s later.
+            askingWindows.removeValue(forKey: door)?.removeFromParent()
+            approachGlows.removeValue(forKey: door)?.removeFromParent()
             lightWindow(at: door)
             onLanternDelivered?(lanternsCarried)
         }
@@ -348,23 +447,168 @@ public class VillageScene: SKScene {
         }
     }
 
-    /// A warm glow over the doorway. This is the only progress display the task
-    /// gets, and it is diegetic — part of the village, not an overlay.
+    /// A warm glow over the doorway: the house has been answered.
+    ///
+    /// This used to be a 26x26 solid tan square with additive blending, which
+    /// against a dark village read as a missing texture rather than as light —
+    /// the owner identified these squares as a rendering fault. It is a soft
+    /// radial falloff now, the same technique as the carried lantern's pool,
+    /// and it lives in `worldNode` so it decays with the palette like every
+    /// other thing in the village. It was parented to the scene before, which
+    /// put the one warm point in the frame outside the dusk filter.
     private func lightWindow(at door: CGPoint) {
         guard litWindows[door] == nil else { return }
-        let glow = SKSpriteNode(color: UIColor(red: 1.0, green: 0.83, blue: 0.45, alpha: 1.0),
-                                size: CGSize(width: 26, height: 26))
-        glow.position = CGPoint(x: door.x, y: door.y + 32)
+        let glow = SKSpriteNode(texture: Self.warmPoolTexture(),
+                                size: CGSize(width: 108, height: 108))
+        glow.position = Self.windowPosition(forDoor: door)
         glow.zPosition = 7
         glow.blendMode = .add
-        glow.alpha = 0
-        addChild(glow)
+        // Lit outright, not faded up. A lamp coming on is instant, and more
+        // to the point the alpha must not depend on an SKAction having run:
+        // the breath below is decoration, and if it never runs the window is
+        // still correctly lit.
+        glow.alpha = 0.55
+        worldNode.addChild(glow)
         litWindows[door] = glow
-        glow.run(.sequence([
-            .fadeAlpha(to: 0.55, duration: 0.45),
-            .repeatForever(.sequence([.fadeAlpha(to: 0.38, duration: 1.7),
-                                      .fadeAlpha(to: 0.55, duration: 1.7)])),
-        ]))
+        glow.run(.repeatForever(.sequence([.fadeAlpha(to: 0.38, duration: 1.7),
+                                           .fadeAlpha(to: 0.55, duration: 1.7)])))
+    }
+
+    // MARK: - Task legibility (SPEC §8.4)
+
+    /// Where a door's light sits: on the doorstep, spilling onto the ground
+    /// in front of the door.
+    ///
+    /// It was briefly lifted onto the doorway itself, which made it invisible
+    /// — the cottages' door row is grey-blue stone, and a cold pool on
+    /// grey-blue stone is nothing at all. On the ground it reads against both
+    /// grass and path, and light falling out of a doorway is what a top-down
+    /// view can actually show.
+    static func windowPosition(forDoor door: CGPoint) -> CGPoint {
+        CGPoint(x: door.x, y: door.y + 26)
+    }
+
+    private static let askingBaseAlpha: CGFloat = 0.62
+
+    /// Dark houses breathe, brighten as they are approached, and the well
+    /// gets pointed at when the player has nothing left to give.
+    ///
+    /// Presentation only. Nothing here is read by the model, and nothing here
+    /// touches a decision location — SPEC §2.9 forbids marking one.
+    private func updateTaskLegibility(currentTime: TimeInterval) {
+        guard let player = playerNode else { return }
+
+        let carrying = lanternsCarried > 0
+        // A slow, shallow breath so the pools read as light rather than as a
+        // pulsing UI element. Same intent as the carried lantern's flicker.
+        let breath = 0.88 + 0.12 * CGFloat(sin(currentTime * 0.9))
+
+        for (door, ask) in askingWindows {
+            let d = hypot(door.x - player.position.x, door.y - player.position.y)
+            // A house only answers an approach that could actually light it.
+            let warmth = carrying ? Self.doorWarmth(distance: d) : 0
+            // The cold recedes as the warmth arrives, rather than the two
+            // simply summing into a brighter blue.
+            ask.alpha = Self.askingBaseAlpha * breath * (1.0 - 0.55 * warmth)
+            approachGlows[door]?.alpha = warmth * 0.85
+            approachGlows[door]?.setScale(0.75 + warmth * 0.45)
+        }
+
+        wellPool?.alpha = 0.30 * breath
+
+        updateWellIndicator(playerPosition: player.position)
+    }
+
+    /// SPEC §8.4's one permitted marker. It points at the well, never at a
+    /// decision, and only while the player is stranded: no light in hand and
+    /// houses still dark.
+    private func updateWellIndicator(playerPosition: CGPoint) {
+        guard let indicator = wellIndicator, let map = mapData else { return }
+
+        let stranded = lanternsCarried == 0 && !undeliveredDoors.isEmpty
+        wellIndicatorActive = stranded
+
+        // Shown and hidden directly rather than faded. Everything about this
+        // marker's state is a function of the current frame, and an SKAction
+        // would make its alpha depend on the scene having run — the same trap
+        // the asking pools and the lit windows were in.
+        guard stranded else {
+            indicator.isHidden = true
+            indicator.alpha = 0
+            return
+        }
+
+        let well = map.playerSpawnPosition
+        let dx = well.x - playerPosition.x
+        let dy = well.y - playerPosition.y
+        let angle = atan2(dy, dx)
+
+        // Ride an inset ellipse at the screen edge, pointing the way the well
+        // lies. The camera is the frame, so this is in camera-local points.
+        let rx = max(size.width / 2 - 56, 40)
+        let ry = max(size.height / 2 - 56, 40)
+        indicator.position = CGPoint(x: cos(angle) * rx, y: sin(angle) * ry)
+        indicator.zRotation = angle
+
+        indicator.isHidden = false
+        indicator.alpha = 0.8
+    }
+
+    /// A stubby triangle pointing along +x, so `zRotation` alone aims it.
+    private static func chevronPath() -> CGPath {
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 13, y: 0))
+        path.addLine(to: CGPoint(x: -8, y: 9))
+        path.addLine(to: CGPoint(x: -4, y: 0))
+        path.addLine(to: CGPoint(x: -8, y: -9))
+        path.closeSubpath()
+        return path
+    }
+
+    private static var cachedWarmPool: SKTexture?
+    private static var cachedColdPool: SKTexture?
+
+    /// The light of an answered house, and of the well.
+    static func warmPoolTexture() -> SKTexture {
+        if let cached = cachedWarmPool { return cached }
+        let tex = radialPool(colors: [
+            UIColor(red: 1.00, green: 0.88, blue: 0.62, alpha: 0.92),
+            UIColor(red: 0.99, green: 0.72, blue: 0.36, alpha: 0.38),
+            UIColor(red: 0.86, green: 0.48, blue: 0.18, alpha: 0.00),
+        ])
+        cachedWarmPool = tex
+        return tex
+    }
+
+    /// The absence of it. Cold and dim, so a dark house reads as asking
+    /// without ever reading as a marker someone placed there.
+    static func coldPoolTexture() -> SKTexture {
+        if let cached = cachedColdPool { return cached }
+        let tex = radialPool(colors: [
+            UIColor(red: 0.44, green: 0.56, blue: 0.86, alpha: 0.95),
+            UIColor(red: 0.26, green: 0.34, blue: 0.62, alpha: 0.55),
+            UIColor(red: 0.10, green: 0.14, blue: 0.30, alpha: 0.00),
+        ])
+        cachedColdPool = tex
+        return tex
+    }
+
+    private static func radialPool(colors: [UIColor]) -> SKTexture {
+        let side: CGFloat = 256
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
+        let image = renderer.image { ctx in
+            guard let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                            colors: colors.map { $0.cgColor } as CFArray,
+                                            locations: [0.0, 0.40, 1.0]) else { return }
+            let centre = CGPoint(x: side / 2, y: side / 2)
+            ctx.cgContext.drawRadialGradient(gradient,
+                                             startCenter: centre, startRadius: 0,
+                                             endCenter: centre, endRadius: side / 2,
+                                             options: [])
+        }
+        let tex = SKTexture(image: image)
+        tex.filteringMode = .linear
+        return tex
     }
 
     /// Seconds since the previous frame, clamped. Used only for presentation
