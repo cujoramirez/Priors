@@ -875,3 +875,38 @@ Not done, and named rather than left implicit: no new `COPY.md` wording — the
 fix is wordless by design, and the in-village act banners in
 `VillageContainerView` remain inline copy that `COPY.md` does not govern.
 Bug B (NPC teleporting) and Bug C (the early shadow report) are untouched.
+
+## Bug B — villagers teleported — closed
+Status: done
+Files touched: `Priors/Priors/Priors/Village/CharacterNode.swift`,
+`Priors/Priors/PriorsTests/NPCWanderTests.swift`.
+
+Two defects compounding, both in `NPCNode`:
+
+1. `startWanderBehavior` built one `SKAction.wait(forDuration:)` from a single
+   `Double.random(in: 2.0...5.0)` and handed it to `repeatForever`. An
+   `SKAction.wait` draws its duration when it is *constructed*, so repeating it
+   forever repeats one draw forever — every villager kept a fixed cadence for
+   the whole session.
+2. The teleport. The repeat loop was `[wait, run{wander}]` and did not wait for
+   the walk: `wanderToRandomNearbyPoint` ended in an **unkeyed**
+   `run(.sequence([move, endAction]))`. With `wanderRadius` 60 a walk lasts up
+   to ~3.4s (`dist / 35`), so a villager that had drawn a 2.0s wait started the
+   next one mid-stride. Two live `move(to:)` actions each interpolate from
+   their own start position and both write `position` every frame; that fight
+   is what read as jumping.
+
+The cadence is now drawn per cycle, and the loop no longer runs on its own
+clock at all: the next wander is scheduled by the walk's completion, so it
+cannot begin while the villager is still moving. All three of the node's
+actions are keyed, and the pending schedule and any movement in flight are
+removed before a new one starts.
+
+Verified: three new tests. The load-bearing one is
+`aSecondWanderNeverLeavesTwoMovementsRunning`, which triggers two wanders,
+removes the three keys the node owns, and asserts nothing is left running — an
+unkeyed movement survives that and fails. Scoped `-only-testing:PriorsTests`
+86 tests in 9 suites, all passed. Also watched it: four Release screenshots
+0.9s apart show both visible villagers drifting continuously, no jumps —
+though four frames is a weak sample for an intermittent fault, which is why
+the invariant is pinned by test rather than by eye.

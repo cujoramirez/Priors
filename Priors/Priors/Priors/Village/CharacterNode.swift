@@ -177,7 +177,14 @@ public class PlayerNode: SKSpriteNode {
 public class NPCNode: SKSpriteNode {
     public let villagerID: String
     private var currentDirection: Direction = .down
-    private let walkActionKey = "npc_walk_anim"
+    /// The three keys this node owns. Everything it runs is addressable, so a
+    /// wander can never leave an anonymous action behind it — which is what
+    /// made villagers teleport.
+    static let walkActionKey = "npc_walk_anim"
+    static let moveActionKey = "npc_move"
+    static let wanderScheduleKey = "npc_wander_schedule"
+    /// How long a villager stands before choosing somewhere else to be.
+    static let wanderInterval: ClosedRange<TimeInterval> = 2.0...5.0
     private var homePosition: CGPoint
     private var wanderRadius: CGFloat
     /// Which of the three faceless villager appearances this one uses. Derived
@@ -212,14 +219,30 @@ public class NPCNode: SKSpriteNode {
     }
 
     private func startWanderBehavior() {
-        let waitAction = SKAction.wait(forDuration: Double.random(in: 2.0...5.0))
-        let wanderAction = SKAction.run { [weak self] in
-            self?.wanderToRandomNearbyPoint()
-        }
-        run(SKAction.repeatForever(SKAction.sequence([waitAction, wanderAction])))
+        scheduleNextWander()
     }
 
-    private func wanderToRandomNearbyPoint() {
+    /// One wander, scheduled once.
+    ///
+    /// This used to be `repeatForever([wait, run])` with the `wait` built from
+    /// a single `Double.random` — but an `SKAction.wait` draws its duration
+    /// when it is *constructed*, so repeating it forever repeats one draw
+    /// forever and every villager kept a fixed cadence for the session. The
+    /// interval is drawn here, per cycle, instead.
+    ///
+    /// More importantly the loop no longer runs on its own clock. The next
+    /// wander is scheduled by the walk's completion (see
+    /// `wanderToRandomNearbyPoint`), so it cannot begin while the villager is
+    /// still moving.
+    func scheduleNextWander() {
+        let wait = SKAction.wait(forDuration: Double.random(in: Self.wanderInterval))
+        let step = SKAction.run { [weak self] in
+            self?.wanderToRandomNearbyPoint()
+        }
+        run(SKAction.sequence([wait, step]), withKey: Self.wanderScheduleKey)
+    }
+
+    func wanderToRandomNearbyPoint() {
         let angle = Double.random(in: 0...(2 * .pi))
         let distance = CGFloat.random(in: 20...wanderRadius)
         let targetPoint = CGPoint(
@@ -242,12 +265,22 @@ public class NPCNode: SKSpriteNode {
 
         let endAction = SKAction.run { [weak self] in
             guard let self = self else { return }
-            self.removeAction(forKey: self.walkActionKey)
+            self.removeAction(forKey: Self.walkActionKey)
             self.texture = VillageAssets.shared.npcIdleTexture(variant: self.variant)
+            // Only now is the villager standing still, so only now is it
+            // allowed to decide where to go next.
+            self.scheduleNextWander()
         }
 
-        run(animate, withKey: walkActionKey)
-        run(SKAction.sequence([move, endAction]))
+        // Any pending schedule is dropped and any movement in flight is
+        // replaced rather than joined. Two live `move(to:)` actions each
+        // interpolate from their own start position and both write `position`
+        // every frame; the result was the jumping.
+        removeAction(forKey: Self.wanderScheduleKey)
+        removeAction(forKey: Self.moveActionKey)
+
+        run(animate, withKey: Self.walkActionKey)
+        run(SKAction.sequence([move, endAction]), withKey: Self.moveActionKey)
     }
 }
 
